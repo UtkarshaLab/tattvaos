@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tattva OS — Stack Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#ffffff;--bg2:#f7f7f5;--bg3:#f0efeb;
+    --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.15);
+    --text:#1a1a18;--muted:#5f5e5a;--dim:#888780;
+    --mono:'JetBrains Mono',monospace;--sans:'Syne',sans-serif;
+    --crit:#c23a1f;--crit-bg:rgba(194,58,31,0.08);
+    --new:#1f7a4a;--new-bg:rgba(31,122,74,0.08);
+    --plan:#9a6410;--plan-bg:rgba(154,100,16,0.08);
+    --done:#1a54a8;--done-bg:rgba(26,84,168,0.08);
+    --lock-bg:rgba(136,135,128,0.1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:#fff;color:var(--text);font-family:var(--sans)}
+  body{max-width:1000px;margin:0 auto;padding:2rem 1.5rem 4rem}
+  header{margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:0.5px solid var(--border)}
+  header h1{font-size:26px;font-weight:600;letter-spacing:-0.02em;margin-bottom:4px}
+  header p{font-size:13px;color:var(--muted);line-height:1.6}
+  .meta{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .meta span{font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--bg3);padding:2px 8px;border-radius:4px;border:0.5px solid var(--border)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:1.5rem}
+  .li{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+  .ld{width:6px;height:6px;border-radius:50%}
+  .S{margin-bottom:0.75rem;border:0.5px solid var(--border);border-radius:10px;overflow:hidden}
+  .SH{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;background:var(--bg2);gap:8px}
+  .ST{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em}
+  .SB{padding:4px 0}
+  .CH{display:grid;grid-template-columns:130px 1fr 175px;gap:8px;padding:4px 16px 6px;border-bottom:0.5px solid var(--border);margin-bottom:2px}
+  .CH span{font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--dim);font-family:var(--mono)}
+  .R{display:grid;grid-template-columns:130px 1fr 175px;gap:8px;padding:4px 16px;align-items:start}
+  .R:hover{background:var(--bg2)}
+  .N{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text);line-height:1.6}
+  .D{font-size:12px;color:var(--muted);line-height:1.6}
+  .P{font-size:11px;color:var(--dim);font-family:var(--mono);line-height:1.6}
+  .b{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;font-weight:400;white-space:nowrap;vertical-align:middle;margin-left:4px;font-family:var(--mono)}
+  .bc{background:var(--crit-bg);color:var(--crit)}
+  .bn{background:var(--new-bg);color:var(--new)}
+  .bp{background:var(--plan-bg);color:var(--plan)}
+  .bd{background:var(--done-bg);color:var(--done)}
+  .bl{background:var(--lock-bg);color:var(--dim);border:0.5px solid var(--border2)}
+  .note{font-size:11px;color:var(--dim);padding:5px 16px;font-style:italic;line-height:1.7;border-top:0.5px solid var(--border);margin-top:4px}
+  .note strong{color:var(--muted);font-style:normal}
+  .cb{background:var(--bg3);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.8;margin:8px 16px;border:0.5px solid var(--border);white-space:pre;overflow-x:auto}
+  .boot{padding:12px 16px;display:flex;flex-direction:column;gap:0}
+  .bi{display:flex;align-items:center;gap:10px;padding:3px 0}
+  .bd2{width:8px;height:8px;border-radius:50%;background:var(--border2);flex-shrink:0}
+  .bd2.on{background:var(--done)}
+  .ba{color:var(--dim);font-size:11px;margin-left:19px;line-height:1}
+  .bn2{font-family:var(--mono);font-size:12px;color:var(--text);min-width:120px}
+  .bde{font-size:11px;color:var(--dim)}
+  .ng{display:grid;grid-template-columns:1fr 1fr;padding:4px 0}
+  .nr{display:flex;gap:10px;padding:4px 16px;align-items:baseline}
+  .nr:hover{background:var(--bg2)}
+  .nk{font-family:var(--mono);font-size:12px;min-width:110px;color:var(--muted)}
+  .nv{font-size:12px;color:var(--dim)}
+  .rm{padding:10px 16px}
+  .rp{margin-bottom:12px}
+  .rl{font-size:10px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;font-family:var(--mono)}
+  .ri-wrap{display:flex;flex-wrap:wrap;gap:6px}
+  .ri{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:5px;background:var(--bg3);color:var(--muted);border:0.5px solid var(--border)}
+  .ri.hot{background:var(--crit-bg);color:var(--crit);border-color:transparent}
+  .ri.warn{background:var(--plan-bg);color:var(--plan);border-color:transparent}
+  .ri.info{background:var(--done-bg);color:var(--done);border-color:transparent}
+  @media(max-width:640px){.CH,.R{grid-template-columns:110px 1fr}.CH span:last-child,.R .P{display:none}.ng{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Tattva OS — stack reference</h1>
+  <p>Assembly-native unikernel OS and inference stack by Utkarsha Labs.<br>Every module in hand-crafted assembly. Nothing borrowed, nothing wasted.</p>
+  <div class="meta"><span>AArch64</span><span>x86-64</span><span>RISC-V</span><span>Utkarsha Labs © 2026</span></div>
+</header>
+
+<div class="legend">
+  <div class="li"><div class="ld" style="background:var(--crit)"></div>critical / in progress</div>
+  <div class="li"><div class="ld" style="background:var(--new)"></div>newly added / clarified</div>
+  <div class="li"><div class="ld" style="background:var(--plan)"></div>planned</div>
+  <div class="li"><div class="ld" style="background:var(--done)"></div>defined / finalized</div>
+</div>
+
+<!-- LAYER 0 -->
+<div class="S"><div class="SH"><span class="ST">layer 0 — absolute foundation</span><span class="b bc">build first</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">mem</span><span class="D">physical memory map, page allocator, heap, arena, memcpy/set/cmp/move</span><span class="P">nothing</span></div>
+<div class="R"><span class="N">io</span><span class="D">raw fd primitives, read/write/open/close, device abstraction, DMA, interrupts</span><span class="P">mem</span></div>
+<div class="R"><span class="N">str</span><span class="D">strlen/cpy/cmp/cat, sprintf/snprintf, atoi/itoa — ASCII/bytes only</span><span class="P">mem</span></div>
+<div class="R"><span class="N">utf8 <span class="b bn">clarified</span></span><span class="D">encode/decode codepoints, validate sequences, iterate — not rendering. feeds str, uparser, ufont</span><span class="P">mem, str</span></div>
+<div class="R"><span class="N">urand</span><span class="D">CSPRNG, entropy from hardware — RDRAND equiv. feeds ucrypt</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">time</span><span class="D">wall clock, monotonic, TSC, sleep — raw primitives only</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">cal</span><span class="D">calendar ops, Bikram Sambat, timezone, date formatting — separate from time</span><span class="P">time, str</span></div>
+</div></div>
+
+<!-- PARALLEL TRACK -->
+<div class="S"><div class="SH"><span class="ST">parallel track — assembler + bootloader</span><span class="b bc">independent of layer stack</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">uboot</span><span class="D">bootloader — stage1/stage2, survive/ panic recovery, UEFI + BIOS + RISC-V, BXP/GPT/MBR/FAT32/ext2</span><span class="P">asm only</span></div>
+<div class="R"><span class="N">utasm</span><span class="D">assembler/linker/disassembler — AArch64, x86-64, RISC-V + memory safety checker built in</span><span class="P">self-hosted</span></div>
+<div class="R"><span class="N">ucheck <span class="b bn">added</span></span><span class="D">memory safety checker — ownership analysis, borrow checking, integrated into utasm pipeline</span><span class="P">utasm</span></div>
+<div class="R"><span class="N">ulint <span class="b bn">added</span></span><span class="D">assembly linter — style and convention checks, static bug detection before assembly</span><span class="P">utasm</span></div>
+<div class="R"><span class="N">uvuln <span class="b bn">added</span></span><span class="D">vulnerability pattern matcher — finds unsafe memory patterns in asm at assemble time</span><span class="P">utasm, ucheck</span></div>
+<div class="note"><strong>uboot survive/:</strong> snapshot hardware state → hide 4KB page from e820 → on panic diff state → warm reload → hard reset only as last resort. nobody else does this.</div>
+<div class="note"><strong>NASM bridge:</strong> Track 2 via Claude Code while utasm is built — GEMM, uhash, ulib, uboot, udb KV core. abstraction layer ensures mechanical swap later.</div>
+</div></div>
+
+<!-- LAYER 1 -->
+<div class="S"><div class="SH"><span class="ST">layer 1 — crypto stack</span><span class="b bd">finalized ✓</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">uhash</span><span class="D">SHA-256/384/512, SHA-3, BLAKE3, MD5 — streaming + one-shot API, zero key involvement, SIMD accelerated</span><span class="P">mem</span></div>
+<div class="R"><span class="N">ucrypt</span><span class="D">AES-GCM, ChaCha20, Ed25519, X25519, RSA, Kyber, Dilithium, FALCON, SPHINCS+, HKDF, Argon2id, HMAC, Poly1305 — all crypto, all eras</span><span class="P">uhash, urand, mem</span></div>
+<div class="R"><span class="N">uSSL</span><span class="D">TLS 1.3, kTLS, handshake, record layer, cert parsing</span><span class="P">ucrypt, unet</span></div>
+<div class="R"><span class="N">usign</span><span class="D">sign/verify CLI — Ed25519, binary signing, GPG alt. signs .upk packages and kernel images</span><span class="P">ucrypt</span></div>
+<div class="R"><span class="N">umtls <span class="b bn">added</span></span><span class="D">mutual TLS — both sides authenticate, zero-trust inter-service security</span><span class="P">uSSL, ucrypt</span></div>
+<div class="note"><strong>uhash feeds:</strong> udb checksums · smriti content addressing · upm integrity · uboot binary verify · uelf integrity</div>
+<div class="note"><strong>ucrypt feeds:</strong> uSSL · uSSH · uauth · udb at-rest encryption · ugate · smriti · utee</div>
+</div></div>
+
+<!-- LAYER 2 -->
+<div class="S"><div class="SH"><span class="ST">layer 2 — standard library</span><span class="b bp">after layer 0</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">umath</span><span class="D">float ops, trig, SIMD (NEON/SVE/AVX2/AVX-512/AMX), GEMM, tensor primitives — heaviest module</span><span class="P">mem</span></div>
+<div class="R"><span class="N">ulib</span><span class="D">vec, map, set, list, queue, deque, stack, ring, heap, btree, bitset, trie, base64, varint, UUID, error types</span><span class="P">mem, str, utf8</span></div>
+<div class="R"><span class="N">regex <span class="b bn">clarified</span></span><span class="D">pattern matching engine, PCRE alt — NOT part of ulib. optional and heavy. feeds ugrep, search, uparser</span><span class="P">mem, str, ulib</span></div>
+<div class="R"><span class="N">uparser <span class="b bn">clarified</span></span><span class="D">grammar/AST engine for SurrealQL, HTTP headers, config, BXP — uses regex optionally. feeds uquery, spine</span><span class="P">mem, str, utf8, ulib</span></div>
+<div class="R"><span class="N">ucmp</span><span class="D">Zstd, LZ4, Snappy, DEFLATE — streaming compress/decompress, was Laghu</span><span class="P">mem, ulib</span></div>
+<div class="R"><span class="N">ulog</span><span class="D">structured logging only — levels, fields, output sinks. NOT metrics. zero overhead in prod builds</span><span class="P">mem, str, time, io</span></div>
+<div class="R"><span class="N">ufile <span class="b bn">clarified</span></span><span class="D">magic bytes only — libmagic alt, MIME detection, file type from first N bytes. NOT file ops. knows GGUF, safetensors, ONNX</span><span class="P">mem, io, str</span></div>
+<div class="note"><strong>ulib → udb reuse:</strong> btree→B+tree indexes · map→buffer pool · ring→WAL · heap→query scheduler · bitset→bloom filters · set→DISTINCT · list→LRU chain · trie→full-text prefix</div>
+</div></div>
+
+<!-- LAYER 3 -->
+<div class="S"><div class="SH"><span class="ST">layer 3 — storage stack</span><span class="b bp">after layer 2</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">uFS</span><span class="D">filesystem — inodes (with TTL field for chmod_ttl), journal, mount/unmount, block allocation, path resolution</span><span class="P">mem, io, ulib</span></div>
+<div class="R"><span class="N">uwal <span class="b bn">added</span></span><span class="D">write-ahead log primitives — fsync guarantees, segment management, crash recovery</span><span class="P">mem, io, uFS</span></div>
+<div class="R"><span class="N">ubxp <span class="b bn">added</span></span><span class="D">BXP binary protocol — encoder/decoder, Tattva wire format for everything</span><span class="P">mem, ulib, ucmp</span></div>
+<div class="R"><span class="N">udb <span class="b bc">rename TBD</span></span><span class="D">multi-model DB — KV, SQL, vector, graph, GIS, HFT, ledger, timeseries, distributed. was Sagar</span><span class="P">mem, io, uFS, uwal, ulib, umath, uhash, ucmp, ubxp</span></div>
+<div class="R"><span class="N">uobject <span class="b bn">added</span></span><span class="D">object storage — S3-compatible API, large file storage, model weight repository. was Sangraha</span><span class="P">uFS, uhttp, uhash</span></div>
+<div class="R"><span class="N">ummapf <span class="b bn">added</span></span><span class="D">memory-mapped files — mmap for model weight loading, lazy loading, zero-copy serving</span><span class="P">mem, io, uFS</span></div>
+<div class="R"><span class="N">unvme <span class="b bn">added</span></span><span class="D">NVMe direct access — bypass kernel for storage, fast checkpoint loading</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">utiered <span class="b bn">added</span></span><span class="D">tiered storage manager — HBM→DRAM→NVMe→S3 hierarchy, automatic data migration</span><span class="P">mem, uFS, unvme, uobject</span></div>
+<div class="note"><strong>udb rename TBD.</strong> Candidates: Verum · Cairn · Muninn · Seshat · Nabu. anantadb.com taken.</div>
+</div></div>
+
+<!-- LAYER 4 -->
+<div class="S"><div class="SH"><span class="ST">layer 4 — network stack</span><span class="b bp">after layer 1 + 3</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">unet <span class="b bn">clarified</span></span><span class="D">TCP/IP stack only — raw sockets, AF_XDP, packet I/O. no DNS, no HTTP</span><span class="P">mem, io, ulib</span></div>
+<div class="R"><span class="N">udns <span class="b bn">separated</span></span><span class="D">DNS resolver + cache — was Nama, now standalone. includes mDNS for local node discovery</span><span class="P">unet, ulib, ucmp</span></div>
+<div class="R"><span class="N">uhttp <span class="b bn">added</span></span><span class="D">HTTP/1.1 + HTTP/2 primitives — QUIC/HTTP3 in userve. this is the base layer</span><span class="P">unet, uSSL, uparser</span></div>
+<div class="R"><span class="N">uSSH</span><span class="D">SSH server/client — remote management, critical for production nodes</span><span class="P">unet, ucrypt, uSSL</span></div>
+<div class="R"><span class="N">urdma <span class="b bn">added</span></span><span class="D">RDMA support — InfiniBand + RoCE, zero-copy network, 100Gb+ inter-node for distributed training</span><span class="P">unet, mem</span></div>
+<div class="R"><span class="N">ugossip <span class="b bn">added</span></span><span class="D">gossip protocol — node discovery, state propagation, failure detection for cluster</span><span class="P">unet, ulib</span></div>
+<div class="R"><span class="N">uping · knock · utcp · usniff · upkt · ulatency · silent</span><span class="D">network diagnostic tools — ping, TCP timer, session inspector, sniffer, BXP inspector, latency, outbound watcher</span><span class="P">unet, time</span></div>
+<div class="R"><span class="N">arp · ip · route · host · whois · netmon</span><span class="D">network config and diagnostic commands</span><span class="P">unet, udns</span></div>
+</div></div>
+
+<!-- LAYER 5 -->
+<div class="S"><div class="SH"><span class="ST">layer 5 — serving + security</span><span class="b bp">after layer 4</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">userve <span class="b bn">clarified</span></span><span class="D">HTTP/3 + QUIC server — was Garuda, depends on uhttp not raw unet</span><span class="P">uhttp, uSSL, udb</span></div>
+<div class="R"><span class="N">uauth <span class="b bn">clarified</span></span><span class="D">auth server — JWT, sessions, OAuth2 flows, was Dvara</span><span class="P">ucrypt, uhash, udb</span></div>
+<div class="R"><span class="N">niti</span><span class="D">firewall — packet filtering, eBPF test first then bare metal</span><span class="P">unet, ulib</span></div>
+<div class="R"><span class="N">uaudit</span><span class="D">audit trail — tamper evident log, compliance</span><span class="P">ulog, uhash, udb</span></div>
+<div class="R"><span class="N">ugate <span class="b bn">added</span></span><span class="D">API gateway — rate limiting, routing, was Sangam</span><span class="P">userve, uauth, udb</span></div>
+<div class="R"><span class="N">ulb <span class="b bn">added</span></span><span class="D">load balancer — request routing, health checks</span><span class="P">unet, ulib</span></div>
+<div class="R"><span class="N">utee <span class="b bn">added</span></span><span class="D">Trusted Execution Environment — SGX/TrustZone, secure enclave for inference, model weight protection</span><span class="P">kernel, ucrypt</span></div>
+<div class="R"><span class="N">uattest <span class="b bn">added</span></span><span class="D">remote attestation — prove code is unmodified, hardware-rooted trust for enterprise inference</span><span class="P">utee, uhash, ucrypt</span></div>
+<div class="R"><span class="N">usecboot <span class="b bn">added</span></span><span class="D">secure boot chain — verify each stage cryptographically, TPM integration, measured boot</span><span class="P">uboot, ucrypt, uhash</span></div>
+<div class="R"><span class="N">uopenai <span class="b bn">added</span></span><span class="D">OpenAI API compat — /v1/chat/completions, /v1/embeddings, /v1/completions. any OpenAI client works</span><span class="P">userve, uinfer</span></div>
+<div class="R"><span class="N">ustream <span class="b bn">added</span></span><span class="D">streaming responses — SSE (Server-Sent Events), token-by-token streaming, delta encoding</span><span class="P">userve, uinfer</span></div>
+<div class="R"><span class="N">uembedding <span class="b bn">added</span></span><span class="D">embedding serving — batch embed documents, cosine similarity via udb vector, RAG support</span><span class="P">uinfer, udb</span></div>
+<div class="R"><span class="N">urerank <span class="b bn">added</span></span><span class="D">reranking model serving — cross-encoder scoring, RAG result reranking</span><span class="P">uinfer, userve</span></div>
+</div></div>
+
+<!-- LAYER 6 -->
+<div class="S"><div class="SH"><span class="ST">layer 6 — AI / inference</span><span class="b bn">entire group added</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">— kernels —</span><span class="D" style="color:var(--dim);font-style:italic">low-level compute</span><span class="P"></span></div>
+<div class="R"><span class="N">uattn</span><span class="D">attention — FlashAttention alt, fused SDPA, causal mask, GQA (grouped query attention)</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">uffn <span class="b bn">added</span></span><span class="D">FFN kernel — fused linear + activation, SwiGLU, GeGLU variants</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">unorm <span class="b bn">added</span></span><span class="D">normalization — RMSNorm (LLaMA style), LayerNorm (GPT style), fused with next op</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">uact <span class="b bn">added</span></span><span class="D">activation functions — GELU, SiLU, SwiGLU, ReLU, Mish — all fused SIMD assembly</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">uembed <span class="b bn">added</span></span><span class="D">embedding lookup — token→vector, RoPE position embedding, ALiBi, sinusoidal</span><span class="P">umath, mem, ulib</span></div>
+<div class="R"><span class="N">urope <span class="b bn">added</span></span><span class="D">Rotary Position Embedding — LLaMA/Mistral style, complex number rotation, length extrapolation</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">usparse <span class="b bn">added</span></span><span class="D">sparse attention — sliding window (Mistral), local+global (LongFormer), flash-linear</span><span class="P">uattn, mem</span></div>
+<div class="R"><span class="N">uquant <span class="b bn">added</span></span><span class="D">quantization — INT8, INT4, FP8 (H100 native), NF4, GPTQ, AWQ — dequantize for compute, requantize for storage</span><span class="P">umath, mem</span></div>
+<div class="R"><span class="N">uspeculate <span class="b bn">added</span></span><span class="D">speculative decoding — draft model generates N tokens, large model verifies in parallel. 3-4x throughput, zero quality loss</span><span class="P">uinfer, umath</span></div>
+<div class="R"><span class="N">— memory —</span><span class="D" style="color:var(--dim);font-style:italic">KV cache + offload</span><span class="P"></span></div>
+<div class="R"><span class="N">upaged <span class="b bn">added</span></span><span class="D">PagedAttention — non-contiguous KV cache blocks, eliminates fragmentation, more concurrent requests</span><span class="P">mem, ulib</span></div>
+<div class="R"><span class="N">ukvcache <span class="b bn">added</span></span><span class="D">KV cache manager — alloc/free blocks, LRU eviction, cross-session persistence via udb</span><span class="P">upaged, udb, ulib</span></div>
+<div class="R"><span class="N">uprefix <span class="b bn">added</span></span><span class="D">prefix caching — hash prompt prefixes, reuse KV cache for identical system prompts, udb-backed permanent store</span><span class="P">ukvcache, udb, uhash</span></div>
+<div class="R"><span class="N">— tokenize —</span><span class="D" style="color:var(--dim);font-style:italic">encoding pipeline</span><span class="P"></span></div>
+<div class="R"><span class="N">utok</span><span class="D">tokenizer — BPE (GPT), WordPiece (BERT), SentencePiece (LLaMA), Tiktoken compat (GPT-4)</span><span class="P">mem, str, utf8, ulib</span></div>
+<div class="R"><span class="N">uencode <span class="b bn">added</span></span><span class="D">multimodal encoding — text→tokens, image→patch embeddings, audio→mel spectrogram, video→frame embeddings</span><span class="P">utok, umath, mem</span></div>
+<div class="R"><span class="N">— decode —</span><span class="D" style="color:var(--dim);font-style:italic">output strategies</span><span class="P"></span></div>
+<div class="R"><span class="N">udecode <span class="b bn">added</span></span><span class="D">decoding engine — greedy, beam search, top-K, top-P, min-P, temperature, mirostat, typical sampling, repetition penalty</span><span class="P">uinfer, umath, ulib</span></div>
+<div class="R"><span class="N">— models —</span><span class="D" style="color:var(--dim);font-style:italic">architecture support</span><span class="P"></span></div>
+<div class="R"><span class="N">ullama <span class="b bn">added</span></span><span class="D">LLaMA family — LLaMA 1/2/3, GQA, RoPE, RMSNorm, SwiGLU FFN</span><span class="P">uattn, uffn, unorm, urope</span></div>
+<div class="R"><span class="N">umistral <span class="b bn">added</span></span><span class="D">Mistral family — sliding window attention, GQA, Mixtral MoE support</span><span class="P">uattn, usparse, umoe</span></div>
+<div class="R"><span class="N">umoe <span class="b bn">added</span></span><span class="D">Mixture of Experts — expert routing kernel, sparse activation, top-K selection, load balancing</span><span class="P">uattn, uffn, ulib</span></div>
+<div class="R"><span class="N">uvision <span class="b bn">added</span></span><span class="D">vision encoder — ViT architecture, patch embedding, multimodal support</span><span class="P">umath, uembed</span></div>
+<div class="R"><span class="N">uwhisper <span class="b bn">added</span></span><span class="D">audio encoder-decoder — mel spectrogram, encoder + decoder attention, CTC decoding</span><span class="P">uencode, uattn, udecode</span></div>
+<div class="R"><span class="N">— formats —</span><span class="D" style="color:var(--dim);font-style:italic">model format support</span><span class="P"></span></div>
+<div class="R"><span class="N">ugguf <span class="b bn">added</span></span><span class="D">GGUF format — llama.cpp standard, most open models ship in this</span><span class="P">mem, io, ucmp</span></div>
+<div class="R"><span class="N">usafetensor <span class="b bn">added</span></span><span class="D">safetensors — HuggingFace standard, safe deserialization, memory-mapped loading</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">uonnx <span class="b bn">added</span></span><span class="D">ONNX import/export — run any ONNX model, export to your format</span><span class="P">mem, io, uparser</span></div>
+<div class="R"><span class="N">uggml <span class="b bn">added</span></span><span class="D">GGML legacy format reader — older llama.cpp format, still widely used</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">uconvert <span class="b bn">added</span></span><span class="D">model format converter — GGUF/safetensors/ONNX → Tattva format. one tool, all conversions</span><span class="P">ugguf, usafetensor, uonnx, umodel</span></div>
+<div class="R"><span class="N">umodel</span><span class="D">model loader — weight loading, memory-mapped, sharded model loading across GPUs/nodes</span><span class="P">mem, io, uFS, ucmp, ufile, uhash, ummapf</span></div>
+<div class="R"><span class="N">— engine —</span><span class="D" style="color:var(--dim);font-style:italic">inference + training</span><span class="P"></span></div>
+<div class="R"><span class="N">uinfer</span><span class="D">inference engine — transformer runtime loop, forward pass, request batching, sampling via udecode</span><span class="P">utok, uattn, umodel, ukvcache, umath</span></div>
+<div class="R"><span class="N">ubatch <span class="b bn">added</span></span><span class="D">batch processing engine — job queue (udb-backed), continuous batching, scheduler, worker pool, prefix cache, async results</span><span class="P">uinfer, udb, ulib, umetric, userve</span></div>
+<div class="R"><span class="N">utrain</span><span class="D">training loop — forward/backward, gradient accumulation, checkpoint via udb</span><span class="P">uinfer, uoptim, udb, ulog</span></div>
+<div class="R"><span class="N">uoptim</span><span class="D">fused optimizer — Adam, AdamW, single-pass parameter update</span><span class="P">umath, mem</span></div>
+<div class="cb">transformer families:
+  encoder-only    → BERT, RoBERTa — classification, embeddings, search
+  decoder-only    → GPT, LLaMA, ChatGPT — autoregressive generation, one token at a time
+  encoder-decoder → T5, BART, Whisper — translation, summarization, ASR
+
+eliminated by Tattva:  Python · framework dispatch · CUDA runtime · OS scheduler jitter · memory copies
+accepted as unbeatable: cuBLAS GEMM (NVIDIA's own asm) · NCCL collectives for multi-GPU</div>
+</div></div>
+
+<!-- DISTRIBUTED TRAINING -->
+<div class="S"><div class="SH"><span class="ST">distributed training + computing</span><span class="b bn">entirely added</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">uallreduce <span class="b bn">added</span></span><span class="D">AllReduce — ring-AllReduce for gradient aggregation across GPUs/nodes, replaces NCCL for your stack</span><span class="P">unet, urdma, mem</span></div>
+<div class="R"><span class="N">ucollective <span class="b bn">added</span></span><span class="D">collective ops — AllGather, ReduceScatter, Broadcast, Barrier, pipeline parallelism primitives</span><span class="P">unet, urdma, mem</span></div>
+<div class="R"><span class="N">uppipe <span class="b bn">added</span></span><span class="D">pipeline parallelism — split model across GPUs, micro-batch scheduling, bubble minimization</span><span class="P">uinfer, ucollective</span></div>
+<div class="R"><span class="N">utensor <span class="b bn">added</span></span><span class="D">tensor parallelism — Megatron-style column/row parallel, split individual layers across GPUs</span><span class="P">umath, ucollective</span></div>
+<div class="R"><span class="N">usharding <span class="b bn">added</span></span><span class="D">ZeRO sharding — ZeRO-1 (optimizer), ZeRO-2 (+ gradients), ZeRO-3 (+ parameters)</span><span class="P">utrain, ucollective</span></div>
+<div class="R"><span class="N">ucheckpoint <span class="b bn">added</span></span><span class="D">distributed checkpoint — save/restore all nodes simultaneously, async during training, elastic recovery</span><span class="P">udb, uFS, ucollective</span></div>
+<div class="R"><span class="N">uelastic <span class="b bn">added</span></span><span class="D">elastic training — add/remove nodes mid-training, fault tolerance without restart</span><span class="P">udist, utrain</span></div>
+<div class="R"><span class="N">ugang <span class="b bn">added</span></span><span class="D">gang scheduling — launch all workers simultaneously, prevent resource deadlock</span><span class="P">kernel, ulib</span></div>
+<div class="R"><span class="N">udist <span class="b bn">added</span></span><span class="D">distributed runtime — node discovery, membership protocol, heartbeat, failure detection</span><span class="P">unet, ugossip, ulib</span></div>
+<div class="R"><span class="N">uraft <span class="b bn">added</span></span><span class="D">Raft consensus — leader election, log replication, critical for udb distributed mode</span><span class="P">udist, unet, udb</span></div>
+<div class="R"><span class="N">urpc <span class="b bn">added</span></span><span class="D">RPC framework — BXP-based async calls between nodes, zero-copy where possible</span><span class="P">ubxp, unet, uSSL</span></div>
+<div class="R"><span class="N">umesh <span class="b bn">added</span></span><span class="D">service mesh — encrypted inter-node comms, mesh load balancing, health checking</span><span class="P">umtls, unet, ulb</span></div>
+<div class="R"><span class="N">uchord <span class="b bn">added</span></span><span class="D">distributed hash table — consistent hashing, node join/leave without resharding everything</span><span class="P">udist, ulib</span></div>
+</div></div>
+
+<!-- HARDWARE -->
+<div class="S"><div class="SH"><span class="ST">hardware abstraction</span><span class="b bn">entirely added</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">unuma <span class="b bn">added</span></span><span class="D">NUMA topology — node detection, memory affinity binding, distance matrix. critical for multi-socket inference</span><span class="P">kernel, mem</span></div>
+<div class="R"><span class="N">ucpu <span class="b bn">added</span></span><span class="D">CPU topology — cores, threads, cache hierarchy, core pinning for inference workers</span><span class="P">kernel</span></div>
+<div class="R"><span class="N">ugpu <span class="b bn">added</span></span><span class="D">GPU topology — GPU detection, PCIe bandwidth mapping, NVLink topology, GPU affinity</span><span class="P">kernel, drivers</span></div>
+<div class="R"><span class="N">uhwloc <span class="b bn">added</span></span><span class="D">unified hardware locality — combined topology map, tells you exactly how to place workloads</span><span class="P">unuma, ucpu, ugpu</span></div>
+<div class="R"><span class="N">uhbm <span class="b bn">added</span></span><span class="D">HBM optimizations — GPU high-bandwidth memory layout, coalescing patterns, bandwidth utilization</span><span class="P">ugpu, mem</span></div>
+<div class="R"><span class="N">ucxl <span class="b bn">added</span></span><span class="D">CXL memory support — CXL memory pooling, disaggregated memory, future-proofing for CXL hardware</span><span class="P">kernel, mem</span></div>
+<div class="R"><span class="N">uiommu <span class="b bn">added</span></span><span class="D">IOMMU management — DMA remapping, GPU memory isolation, security for multi-tenant inference</span><span class="P">kernel</span></div>
+<div class="R"><span class="N">uafxdp <span class="b bn">added</span></span><span class="D">AF_XDP kernel bypass — zero-copy packet processing, critical for Garuda/userve throughput</span><span class="P">kernel, unet</span></div>
+<div class="R"><span class="N">uebpf <span class="b bn">added</span></span><span class="D">eBPF runtime — test layer for niti, observability hooks, runtime program injection</span><span class="P">kernel</span></div>
+<div class="R"><span class="N">uhuge <span class="b bn">added</span></span><span class="D">huge page management — 2MB and 1GB huge pages, TLB pressure reduction for large model weights</span><span class="P">kernel, mem</span></div>
+<div class="R"><span class="N">upinmem <span class="b bn">added</span></span><span class="D">pinned memory — lock pages in RAM, no swapping, critical for DMA transfers and GPU-CPU zero copy</span><span class="P">kernel, mem</span></div>
+<div class="R"><span class="N">upower <span class="b bn">added</span></span><span class="D">power management — CPU/GPU frequency scaling, thermal management, energy-aware scheduling</span><span class="P">kernel</span></div>
+</div></div>
+
+<!-- KERNEL SCHEDULER -->
+<div class="S"><div class="SH"><span class="ST">kernel scheduler primitives</span><span class="b bn">added</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">usched_rt <span class="b bn">added</span></span><span class="D">real-time scheduler — deadline scheduling, priority inheritance, latency guarantees for inference</span><span class="P">kernel</span></div>
+<div class="R"><span class="N">ufair <span class="b bn">added</span></span><span class="D">fair scheduler — multi-tenant resource fairness, weighted fair queuing, tenant isolation</span><span class="P">kernel</span></div>
+<div class="R"><span class="N">upreempt <span class="b bn">added</span></span><span class="D">preemptive job scheduler — pause low-priority inference, run high-priority immediately, resume paused</span><span class="P">kernel, ulib</span></div>
+<div class="R"><span class="N">chmod_ttl <span class="b bn">kernel primitive</span></span><span class="D">expiring permissions baked into inode — TTL field, kernel checks on every permission eval, auto-revokes. no daemon. no cron. one field. one syscall.</span><span class="P">kernel, uFS</span></div>
+<div class="cb">; grant execute for 300 seconds, then auto-revoke
+mov x0, SYS_CHMOD_TTL
+mov x1, [file_fd]
+mov x2, 0o755          ; permissions
+mov x3, 300            ; seconds until auto-revoke
+svc #0</div>
+</div></div>
+
+<!-- LAYER 7 -->
+<div class="S"><div class="SH"><span class="ST">layer 7 — observability</span><span class="b bp">parallel to everything</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">ulog</span><span class="D">structured logging — levels, fields, sinks. zero overhead in prod builds</span><span class="P">mem, str, time, io</span></div>
+<div class="R"><span class="N">umetric <span class="b bn">split</span></span><span class="D">metrics — counters, gauges, histograms, was Drishti. NOT logging</span><span class="P">mem, time, udb</span></div>
+<div class="R"><span class="N">utrace <span class="b bn">added</span></span><span class="D">distributed tracing — spans, context propagation, OpenTelemetry compat</span><span class="P">mem, time, unet</span></div>
+<div class="R"><span class="N">umark <span class="b bn">added</span></span><span class="D">benchmark suite — PMU counters, cycle accurate, hardware perf events, was Mapana</span><span class="P">mem, time, io</span></div>
+<div class="R"><span class="N">uprof <span class="b bn">added</span></span><span class="D">sampling profiler — hot path detection, cache miss attribution, feeds umark</span><span class="P">mem, time, io</span></div>
+<div class="R"><span class="N">usym <span class="b bn">added</span></span><span class="D">symbol table inspector — dump/query symbols from running Utkarsha processes</span><span class="P">uelf, ulib</span></div>
+<div class="R"><span class="N">umap_proc <span class="b bn">added</span></span><span class="D">memory map visualizer — layout of a running process</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">uleak <span class="b bn">added</span></span><span class="D">memory leak detector for asm allocators</span><span class="P">mem, ulog</span></div>
+<div class="R"><span class="N">uflame <span class="b bn">added</span></span><span class="D">flame graph generator — visualize where time is spent at asm level</span><span class="P">uprof, usym</span></div>
+<div class="R"><span class="N">utopology <span class="b bn">added</span></span><span class="D">cluster topology visualizer — all nodes, connections, load, live cluster health map</span><span class="P">udist, umetric</span></div>
+<div class="R"><span class="N">udash <span class="b bn">added</span></span><span class="D">web dashboard — real-time metrics UI, was Tribhuvan, served by userve</span><span class="P">userve, umetric</span></div>
+<div class="R"><span class="N">utui</span><span class="D">terminal UI — dashboard, tables, charts in terminal</span><span class="P">str, utf8, ufont, umetric</span></div>
+<div class="note"><strong>umark philosophy:</strong> direct PMU access, zero overhead. Tattva OS measures itself — measurement does not affect measurement.</div>
+</div></div>
+
+<!-- CORETOOLS -->
+<div class="S"><div class="SH"><span class="ST">coretools — utkarsha native</span><span class="b bc">utkarsha native</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">ush</span><span class="D">shell + init — PID 1, scripting, job control</span><span class="P">mem, io, uFS, ulib</span></div>
+<div class="R"><span class="N">udbg</span><span class="D">debugger — breakpoints, watchpoints, memory inspection, register dump, no DWARF dependency</span><span class="P">mem, io, utasm</span></div>
+<div class="R"><span class="N">ucore <span class="b bn">added</span></span><span class="D">core dump analyzer for Tattva processes</span><span class="P">mem, uelf, udis</span></div>
+<div class="R"><span class="N">ustep <span class="b bn">added</span></span><span class="D">single-step executor — instruction by instruction with full register state dump</span><span class="P">udbg, utasm</span></div>
+<div class="R"><span class="N">ustack <span class="b bn">added</span></span><span class="D">stack unwinder and call chain visualizer</span><span class="P">mem, usym</span></div>
+<div class="R"><span class="N">usched_vis <span class="b bn">added</span></span><span class="D">scheduler visualizer — see how Tattva schedules processes in real time</span><span class="P">mem, umetric</span></div>
+<div class="R"><span class="N">usig <span class="b bn">added</span></span><span class="D">signal inspector — monitor signals between Tattva processes</span><span class="P">io, ulog</span></div>
+<div class="R"><span class="N">ulock <span class="b bn">added</span></span><span class="D">deadlock detector for asm-level mutex/spinlock usage</span><span class="P">mem, ulog</span></div>
+<div class="R"><span class="N">uproc <span class="b bn">added</span></span><span class="D">process inspector — deep dive into a running Tattva process</span><span class="P">mem, io</span></div>
+<div class="R"><span class="N">ubuild <span class="b bn">added</span></span><span class="D">build system — dependency graph, incremental builds, Makefile alt</span><span class="P">mem, io, uFS, ulib</span></div>
+<div class="R"><span class="N">utest <span class="b bn">added</span></span><span class="D">test runner — assertions, fixtures, coverage, critical for memory safety validation</span><span class="P">mem, ulib, ulog</span></div>
+<div class="R"><span class="N">ucov <span class="b bn">added</span></span><span class="D">code coverage for asm routines — which paths actually execute</span><span class="P">utasm, utest</span></div>
+<div class="R"><span class="N">ufuzz <span class="b bn">added</span></span><span class="D">structure-aware fuzzer for Utkarsha binary formats</span><span class="P">urand, ubxp, uelf</span></div>
+<div class="R"><span class="N">uperf</span><span class="D">profiler CLI — sampling + exact PMU, cache miss attribution, feeds umark</span><span class="P">mem, time, io</span></div>
+<div class="R"><span class="N">uget</span><span class="D">file downloader — HTTP/FTP fetch, checksum verify</span><span class="P">uhttp, uhash</span></div>
+<div class="R"><span class="N">uscan</span><span class="D">port scanner + static security scanner for unsafe asm memory patterns</span><span class="P">unet, utasm</span></div>
+<div class="R"><span class="N">usim <span class="b bn">added</span></span><span class="D">hardware simulator — simulate AArch64/RISC-V without real hardware, test uboot in QEMU</span><span class="P">utasm</span></div>
+<div class="R"><span class="N">ucross <span class="b bn">added</span></span><span class="D">cross-compiler support — build AArch64 on x86, RISC-V on AArch64, essential for multi-arch</span><span class="P">utasm</span></div>
+<div class="R"><span class="N">udeploy <span class="b bn">added</span></span><span class="D">deployment tool — push Tattva OS images to bare metal, ansible-like but yours, uses upm</span><span class="P">upm, uhttp, uhash</span></div>
+</div></div>
+
+<!-- BINARY ANALYSIS -->
+<div class="S"><div class="SH"><span class="ST">binary analysis + code intelligence</span><span class="b bp">planned</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">udis</span><span class="D">disassembler — AArch64/x86-64/RISC-V clean output, standalone from utasm</span><span class="P">utasm, ulib</span></div>
+<div class="R"><span class="N">uelf</span><span class="D">ELF inspector tailored for Utkarsha-emitted binaries</span><span class="P">mem, io, str</span></div>
+<div class="R"><span class="N">usect · urel · ubind · uimport</span><span class="D">ELF section manipulator · relocation viewer · linker inspector · import/export analyzer</span><span class="P">uelf</span></div>
+<div class="R"><span class="N">usize</span><span class="D">binary size analyzer — what is eating your .text section</span><span class="P">uelf, ulib</span></div>
+<div class="R"><span class="N">ucall</span><span class="D">call graph extractor from asm binaries</span><span class="P">uelf, udis</span></div>
+<div class="R"><span class="N">uabi</span><span class="D">ABI compatibility checker between two versions of a library</span><span class="P">uelf, ulib</span></div>
+<div class="R"><span class="N">ustrip</span><span class="D">strip debug symbols from Utkarsha binaries</span><span class="P">uelf</span></div>
+<div class="R"><span class="N">uhex</span><span class="D">hex dump with asm annotation</span><span class="P">mem, str</span></div>
+<div class="R"><span class="N">utags</span><span class="D">ctags equivalent for asm — jump-to-definition for labels, functions, macros</span><span class="P">str, uFS, ulib</span></div>
+<div class="R"><span class="N">uxref</span><span class="D">cross-reference tool — who calls what across the entire codebase</span><span class="P">utags, ucall</span></div>
+<div class="R"><span class="N">ugrep</span><span class="D">asm-aware grep — understands labels, registers, mnemonics not just text</span><span class="P">regex, uFS</span></div>
+<div class="R"><span class="N">ucount</span><span class="D">LOC counter with asm metrics — instructions, labels, macros, not just lines</span><span class="P">str, uFS</span></div>
+<div class="R"><span class="N">ureg</span><span class="D">register allocation visualizer — see register pressure across a function</span><span class="P">utasm, udis</span></div>
+<div class="R"><span class="N">usimd</span><span class="D">SIMD instruction validator — checks correctness of vectorized asm</span><span class="P">utasm, umath</span></div>
+<div class="R"><span class="N">uisa</span><span class="D">ISA coverage report — which instructions you are actually using across your codebase</span><span class="P">udis, ucount</span></div>
+<div class="R"><span class="N">fossil</span><span class="D">diffs two binaries by behavior change, not just bytes — shows what actually changed</span><span class="P">uelf, udis, ulib</span></div>
+</div></div>
+
+<!-- STORAGE ADJACENT -->
+<div class="S"><div class="SH"><span class="ST">storage / udb adjacent tools</span><span class="b bp">planned</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">upage</span><span class="D">page file hex inspector with schema awareness — see raw udb pages with meaning</span><span class="P">udb, uhex</span></div>
+<div class="R"><span class="N">uquery</span><span class="D">standalone query tester against udb without spinning up full server</span><span class="P">udb, uparser</span></div>
+<div class="R"><span class="N">uidx</span><span class="D">index integrity checker for udb index types</span><span class="P">udb, ulib</span></div>
+</div></div>
+
+<!-- DEVTOOLS -->
+<div class="S"><div class="SH"><span class="ST">developer tools</span><span class="b bp">later</span></div>
+<div class="SB">
+<div class="CH"><span>module</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">upm</span><span class="D">package manager — .upk format, install/remove/update, signed packages</span><span class="P">uFS, uhash, usign, uhttp</span></div>
+<div class="R"><span class="N">smriti</span><span class="D">version control — git alt, content addressing via uhash, pack format</span><span class="P">uFS, uhash, ucmp, ulib</span></div>
+<div class="R"><span class="N">uedit</span><span class="D">text editor — modal, minimal, vim-inspired</span><span class="P">utf8, ufont, utui, uFS</span></div>
+<div class="R"><span class="N">ufont <span class="b bn">clarified</span></span><span class="D">glyph rendering — TTF/OTF parsing, rasterization. NOT UTF-8 encoding (that is utf8 module)</span><span class="P">mem, utf8, umath</span></div>
+<div class="R"><span class="N">udoc</span><span class="D">doc generator — assembly comments to HTML/MD docs</span><span class="P">str, utf8, uparser, uFS</span></div>
+<div class="R"><span class="N">uenv</span><span class="D">environment manager — language runtimes, PATH, reproducible build snapshots</span><span class="P">uFS, upm</span></div>
+<div class="R"><span class="N">drift</span><span class="D">shows two files diverging in real time as you edit one</span><span class="P">uFS, time</span></div>
+<div class="R"><span class="N">shadow</span><span class="D">reruns the last command every N seconds, diffs the output automatically</span><span class="P">time, io</span></div>
+<div class="R"><span class="N">spine</span><span class="D">shows only the structural skeleton of any text/config/code file</span><span class="P">uparser, str</span></div>
+</div></div>
+
+<!-- COREUTILS -->
+<div class="S"><div class="SH"><span class="ST">coreutils — linux compat commands</span><span class="b bd">standard</span></div>
+<div class="SB">
+<div class="CH"><span>category</span><span>commands</span><span>depends on</span></div>
+<div class="R"><span class="N">file reading</span><span class="D">cat · head · tail · less · more</span><span class="P">io, uFS</span></div>
+<div class="R"><span class="N">file ops</span><span class="D">cp · mv · rm · mkdir · rmdir</span><span class="P">uFS</span></div>
+<div class="R"><span class="N">directory</span><span class="D">ls · size · disk</span><span class="P">uFS, str</span></div>
+<div class="R"><span class="N">output</span><span class="D">echo · clear · wc</span><span class="P">io, str</span></div>
+<div class="R"><span class="N">search</span><span class="D">search (find + grep unified, regex powered)</span><span class="P">regex, uFS</span></div>
+<div class="R"><span class="N">process</span><span class="D">top · uptime · ps · kill · pkill</span><span class="P">mem, time, umetric</span></div>
+<div class="R"><span class="N">permissions</span><span class="D">chmod · chown · env</span><span class="P">uFS, str</span></div>
+<div class="R"><span class="N">archive</span><span class="D">tar · zip</span><span class="P">ucmp, uFS</span></div>
+<div class="R"><span class="N">diff</span><span class="D">diff · patch</span><span class="P">str, uFS</span></div>
+<div class="R"><span class="N">system</span><span class="D">whoami · which · where · man · help · info · cron · power · gnulist</span><span class="P">various</span></div>
+</div></div>
+
+<!-- UNIX TOOLS -->
+<div class="S"><div class="SH"><span class="ST">unix-style tools — sharp and single purpose</span><span class="b bn">newly designed</span></div>
+<div class="SB">
+<div class="CH"><span>tool</span><span>what it does</span><span>depends on</span></div>
+<div class="R"><span class="N">cost</span><span class="D">prepend to any command — peak memory, disk read/write, syscalls, CPU user/kernel. getrusage(), ~80 lines, zero deps. diff two runs to measure every optimization</span><span class="P">io, time</span></div>
+<div class="R"><span class="N">why</span><span class="D">given an assembly instruction, tells you which source line caused it</span><span class="P">udis, utags</span></div>
+<div class="R"><span class="N">blame</span><span class="D">which function in your binary is responsible for most of the file size</span><span class="P">usize, ucall</span></div>
+<div class="R"><span class="N">cold</span><span class="D">runs your program with all caches cleared — true cold-start time, not warmed-cache time</span><span class="P">time, io</span></div>
+<div class="R"><span class="N">noise</span><span class="D">runs a command N times, shows variance distribution — not just average. feeds umark</span><span class="P">time, umark</span></div>
+<div class="cb">cost ./udb --query test.sql
+  query done in    847ms
+  peak memory:      42 MB
+  disk read:        18 MB
+  disk write:        2 MB
+  syscalls:      4,821
+  cpu user:       310ms
+  cpu kernel:      95ms</div>
+</div></div>
+
+<!-- BOOT -->
+<div class="S"><div class="SH"><span class="ST">boot sequence</span><span class="b bd">defined</span></div>
+<div class="SB"><div class="boot">
+  <div class="bi"><div class="bd2 on"></div><span class="bn2">uboot</span><span class="bde">stage1 → stage2 → long mode</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2 on"></div><span class="bn2">mem init</span><span class="bde">physical memory map, page allocator</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2 on"></div><span class="bn2">io init</span><span class="bde">device detection, interrupt setup</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">ulib init</span><span class="bde">data structures available</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">uFS mount</span><span class="bde">root filesystem</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">ulog init</span><span class="bde">logging to files</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">unet init</span><span class="bde">network stack</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">uSSL + uSSH</span><span class="bde">TLS + remote access</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">udb init</span><span class="bde">database engine</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">userve init</span><span class="bde">HTTP/3 serving</span></div>
+  <div class="ba">↓</div>
+  <div class="bi"><div class="bd2"></div><span class="bn2">uinfer + ubatch</span><span class="bde">inference engine ready</span></div>
+</div></div></div>
+
+<!-- NAMING -->
+<div class="S"><div class="SH"><span class="ST">naming decisions</span><span class="b bd">locked where noted</span></div>
+<div class="SB"><div class="ng">
+  <div class="nr"><span class="nk">OS</span><span class="nv">Tattva OS (tattvaos.com taken — use .io or .dev)</span></div>
+  <div class="nr"><span class="nk">bootloader</span><span class="nv">uboot ✓</span></div>
+  <div class="nr"><span class="nk">assembler</span><span class="nv">utasm ✓</span></div>
+  <div class="nr"><span class="nk">database</span><span class="nv">udb — global rename TBD</span></div>
+  <div class="nr"><span class="nk">shell</span><span class="nv">ush ✓</span></div>
+  <div class="nr"><span class="nk">package mgr</span><span class="nv">upm ✓</span></div>
+  <div class="nr"><span class="nk">pkg format</span><span class="nv">.upk ✓</span></div>
+  <div class="nr"><span class="nk">wire protocol</span><span class="nv">BXP — Binary Exchange Protocol ✓</span></div>
+  <div class="nr"><span class="nk">benchmark</span><span class="nv">umark (was Mapana)</span></div>
+  <div class="nr"><span class="nk">version ctrl</span><span class="nv">smriti ✓</span></div>
+</div></div></div>
+
+<!-- ROADMAP -->
+<div class="S"><div class="SH"><span class="ST">roadmap</span><span class="b bp">12 months</span></div>
+<div class="SB"><div class="rm">
+  <div class="rp"><div class="rl">now → 3 months</div><div class="ri-wrap">
+    <span class="ri hot">utasm basic</span><span class="ri hot">uboot stage1+2</span><span class="ri hot">mem + io + str</span><span class="ri hot">uhash</span><span class="ri hot">GEMM kernels</span><span class="ri hot">ulib foundations</span>
+  </div></div>
+  <div class="rp"><div class="rl">3 → 6 months</div><div class="ri-wrap">
+    <span class="ri warn">ulib complete</span><span class="ri warn">udb KV core</span><span class="ri warn">uSSL + uSSH</span><span class="ri warn">M4 Ultra benchmarks</span><span class="ri warn">ucheck v1</span><span class="ri warn">unuma + ugpu</span>
+  </div></div>
+  <div class="rp"><div class="rl">6 → 9 months</div><div class="ri-wrap">
+    <span class="ri info">uinfer v1</span><span class="ri info">uattn kernel</span><span class="ri info">ubatch v1</span><span class="ri info">upaged</span><span class="ri info">OxideChat</span><span class="ri info">benchmark published</span><span class="ri info">NVIDIA Inception apply</span>
+  </div></div>
+  <div class="rp"><div class="rl">9 → 12 months</div><div class="ri-wrap">
+    <span class="ri">certificate in hand</span><span class="ri">udb rename + domain</span><span class="ri">Spärck AI Scholarship prep</span><span class="ri">UK PhD supervisor outreach</span>
+  </div></div>
+</div></div></div>
+
+</body>
+</html>
