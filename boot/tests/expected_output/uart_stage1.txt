@@ -1,0 +1,9 @@
+Tattva Boot OK
+stage1: segments initialized
+stage1: DL saved = 0x80
+stage1: relocating MBR to 0x0600
+stage1: relocated OK
+stage1: LBA support detected
+stage1: loading stage2 from disk
+stage1: stage2 magic OK
+stage1: jumping to stage2

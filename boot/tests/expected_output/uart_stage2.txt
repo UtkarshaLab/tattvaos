@@ -1,0 +1,19 @@
+stage2: entry OK
+stage2: UART initialized at 115200 baud
+stage2: checking A20...
+A20 enabled
+stage2: CPUID OK
+stage2: long mode supported
+stage2: E820 memory map:
+stage2:   [0x0000000000000000 - 0x000000000009F000] usable
+stage2:   [0x0000000000100000 - 0x0000000008000000] usable
+stage2: GDT loaded
+stage2: IDT loaded
+stage2: page tables built
+stage2: identity map OK
+Long mode OK
+stage2: SSE enabled
+stage2: AVX enabled
+stage2: loading kernel from disk
+stage2: kernel magic OK
+stage2: jumping to kernel
