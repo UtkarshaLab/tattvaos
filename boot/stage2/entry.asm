@@ -40,7 +40,6 @@ stage2_magic:
 ; includes
 ; -----------------------------------------------------------------------------
 %include "config.asm"
-%include "boot_drive.asm"
 
 ; =============================================================================
 ; stage2_entry — execution begins here after magic
@@ -145,6 +144,7 @@ stage2_entry:
 %include "tests/test_a20.asm"
 %include "tests/test_paging.asm"
 %include "tests/test_e820.asm"
+%include "boot_drive.asm"
 
 
 
