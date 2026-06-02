@@ -24,6 +24,16 @@ E820_DEST       equ 0x6000      ; E820 memory map stored here
 FEATURES_DEST   equ 0x5000      ; CPU feature flags stored here
 
 ; -----------------------------------------------------------------------------
+; Paging table physical addresses (above BIOS, below stage2, 4KB aligned)
+; -----------------------------------------------------------------------------
+PAGING_PML4     equ 0x10000     ; PML4 table physical address
+PAGING_PDPT     equ 0x11000     ; PDPT table physical address
+PAGING_PD0      equ 0x12000     ; PD for 0GB - 1GB
+PAGING_PD1      equ 0x13000     ; PD for 1GB - 2GB
+PAGING_PD2      equ 0x14000     ; PD for 2GB - 3GB
+PAGING_PD3      equ 0x15000     ; PD for 3GB - 4GB
+
+; -----------------------------------------------------------------------------
 ; Stage2 load size
 ; -----------------------------------------------------------------------------
 STAGE2_SECTORS  equ 16          ; number of 512-byte sectors to load
