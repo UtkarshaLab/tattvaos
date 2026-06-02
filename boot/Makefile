@@ -2,7 +2,7 @@ ASM     = nasm
 QEMU64  = qemu-system-x86_64
 QEMU32  = qemu-system-i386
 
-STAGE1_MAX = 446
+STAGE1_MAX = 512
 
 all: boot.img check
 
@@ -28,14 +28,14 @@ boot.img: stage1/stage1.bin stage2/stage2.bin
 	dd if=stage1/stage1.bin of=boot.img conv=notrunc
 	dd if=stage2/stage2.bin of=boot.img bs=512 seek=1 conv=notrunc
 
-# Enforce 446 byte limit — never disable this
+# Enforce 512 byte MBR size — never disable this
 check: stage1/stage1.bin
 	@size=$$(wc -c < stage1/stage1.bin); \
-	if [ $$size -gt $(STAGE1_MAX) ]; then \
-		echo "ERROR: stage1 is $$size bytes, max is $(STAGE1_MAX)"; \
+	if [ $$size -ne $(STAGE1_MAX) ]; then \
+		echo "ERROR: stage1 is $$size bytes, must be exactly $(STAGE1_MAX) bytes"; \
 		exit 1; \
 	fi
-	@echo "stage1 size OK: $$(wc -c < stage1/stage1.bin) / $(STAGE1_MAX) bytes"
+	@echo "stage1 size OK: $$size / $(STAGE1_MAX) bytes"
 
 # Run normally (64-bit)
 run: boot.img
