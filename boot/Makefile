@@ -34,8 +34,8 @@ check: stage1/stage1.bin
 	if [ $$size -ne $(STAGE1_MAX) ]; then \
 		echo "ERROR: stage1 is $$size bytes, must be exactly $(STAGE1_MAX) bytes"; \
 		exit 1; \
-	fi
-	@echo "stage1 size OK: $$size / $(STAGE1_MAX) bytes"
+	fi; \
+	echo "stage1 size OK: $$size / $(STAGE1_MAX) bytes"
 
 # Run normally (64-bit)
 run: boot.img
