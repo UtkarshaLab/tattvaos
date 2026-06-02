@@ -8,11 +8,23 @@
 %ifndef IDT_LOAD_ASM
 %define IDT_LOAD_ASM
 
+%include "idt.asm"
+%include "idt_handlers.asm"
+
+[BITS 32]
 ; =============================================================================
-; idt_setup — stub to satisfy main.asm compilation in Phase 1
+; idt_setup — load the 32-bit Protected Mode IDT
+; Input:  nothing
+; Output: IDT loaded
+; Clobbers: none
 ; =============================================================================
 idt_setup:
-    ; IDT not loaded in real mode / early protected mode during Phase 1
+    push eax
+
+    lidt [idt_descriptor]
+
+    pop eax
     ret
+[BITS 16]
 
 %endif ; IDT_LOAD_ASM
