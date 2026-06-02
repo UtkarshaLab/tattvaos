@@ -129,6 +129,12 @@ stage2_entry:
 %include "a20.asm"
 %include "cpuid.asm"
 %include "longmode.asm"
+%include "msr.asm"
+%include "vendor.asm"
+%include "cores.asm"
+%include "cache.asm"
+%include "simd_enable.asm"
+%include "fs.asm"
 %include "e820.asm"
 %include "gdt_load.asm"
 %include "gdt_verify.asm"
@@ -136,6 +142,9 @@ stage2_entry:
 %include "paging.asm"
 %include "paging_map.asm"
 %include "paging_verify.asm"
+%include "tests/test_a20.asm"
+%include "tests/test_paging.asm"
+%include "tests/test_e820.asm"
 
 
 
