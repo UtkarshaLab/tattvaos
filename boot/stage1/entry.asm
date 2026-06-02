@@ -34,7 +34,6 @@
 ; includes — constants and storage first
 ; -----------------------------------------------------------------------------
 %include "config.asm"
-%include "boot_drive.asm"
 
 ; =============================================================================
 ; entry — first instruction the CPU executes after BIOS handoff
@@ -260,6 +259,7 @@ msg_magic_error:
 ; =============================================================================
 ; includes — signature must be last, pads to exactly 512 bytes
 ; =============================================================================
+%include "boot_drive.asm"
 %include "signature.asm"
 
 ; =============================================================================
