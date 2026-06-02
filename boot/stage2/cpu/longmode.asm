@@ -180,10 +180,16 @@ longmode_64:
 
     ; -------------------------------------------------------------------------
     ; STEP 9: Load and jump to kernel
-    ; This is where we load the ULF kernel binary
-    ; and jump to its entry point
+    ; Copy kernel from real-mode temp buffer (0x20000) to 1MB mark (0x100000)
     ; -------------------------------------------------------------------------
-    call kernel_load                ; load kernel from disk to KERNEL_LOAD
+    mov rsi, msg_kernel_load
+    call uart_print_64
+
+    call kernel_load                ; copy kernel from KERNEL_TEMP → KERNEL_LOAD
+
+    mov rsi, msg_kernel_ok
+    call uart_print_64
+
     jmp KERNEL_LOAD                 ; jump to kernel entry point
 
     ; never reaches here
@@ -195,6 +201,8 @@ longmode_64:
 ; Data (in 64-bit section)
 ; =============================================================================
 msg_longmode_ok:    db "Long mode OK", 0x0D, 0x0A, 0
+msg_kernel_load:    db "Kernel... ", 0
+msg_kernel_ok:      db "OK", 0x0D, 0x0A, 0
 
 ; Switch back to 16-bit for rest of stage2
 [BITS 16]
