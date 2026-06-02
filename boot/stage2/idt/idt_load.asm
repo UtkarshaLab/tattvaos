@@ -8,8 +8,8 @@
 %ifndef IDT_LOAD_ASM
 %define IDT_LOAD_ASM
 
-%include "idt.asm"
 %include "idt_handlers.asm"
+%include "idt.asm"
 
 [BITS 32]
 ; =============================================================================
