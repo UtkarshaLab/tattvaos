@@ -107,6 +107,24 @@ stage2_main:
     mov si, msg_kernel
     call uart_print
 
+    ; Try LBA first if supported (standard for hard drives like drive 0x80)
+    mov ah, 0x41
+    mov bx, 0x55AA
+    mov dl, [boot_drive]
+    int 0x13
+    jc .fallback_chs                ; carry set = LBA not supported
+    cmp bx, 0xAA55
+    jne .fallback_chs               ; magic not flipped = LBA not supported
+
+    ; LBA is supported! Use extended LBA read to load the entire kernel at once.
+    mov si, lba_packet
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    int 0x13
+    jnc .kernel_success             ; if LBA read succeeded, we are done!
+
+.fallback_chs:
+    ; Fallback: robust floppy sector-by-sector CHS reader
     mov ax, (KERNEL_TEMP >> 4)      ; segment for KERNEL_TEMP (0x2000)
     mov es, ax
     xor bx, bx                      ; ES:BX = KERNEL_TEMP segment:0x0000
@@ -160,6 +178,7 @@ stage2_main:
     dec di                          ; decrement sectors left
     jnz .read_loop                  ; continue if DI > 0
 
+.kernel_success:
     ; All sectors read successfully!
     xor ax, ax
     mov es, ax                      ; restore ES to 0x0000
@@ -230,6 +249,16 @@ msg_err_suffix: db ")", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
 msg_kernel_halt:db "HALT: Kernel load failed", 0
+
+; LBA disk address packet for INT 13h AH=42h
+align 4
+lba_packet:
+    db 0x10                         ; packet size = 16 bytes
+    db 0x00                         ; reserved = 0
+    dw KERNEL_SECTORS               ; number of sectors to read
+    dw 0x0000                       ; buffer offset (0x0000)
+    dw (KERNEL_TEMP >> 4)           ; buffer segment (0x2000)
+    dq 17                           ; starting LBA sector = 17 (after MBR + stage2)
 
 ; CPU feature flags (stored at FEATURES_DEST by cpu_detect)
 CPU_FEAT_LM     equ (1 << 0)       ; long mode supported
