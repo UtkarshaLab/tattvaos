@@ -151,16 +151,49 @@ CPU_FEAT_AMX    equ (1 << 7)       ; AMX supported
 ; =============================================================================
 [BITS 32]
 stage2_main_pm32:
-    ; IDT setup
+
+    ; print '1' before IDT
+    mov edx, 0x3F8 + 5
+.w1: in al, dx
+    test al, 0x20
+    jz .w1
+    mov edx, 0x3F8
+    mov al, 0x31        ; '1'
+    out dx, al
+
     call idt_setup
 
-    ; paging setup
+    ; print '2' before paging
+    mov edx, 0x3F8 + 5
+.w2: in al, dx
+    test al, 0x20
+    jz .w2
+    mov edx, 0x3F8
+    mov al, 0x32        ; '2'
+    out dx, al
+
     call paging_setup
 
-    ; enter long mode — never returns
+    ; print '3' before longmode
+    mov edx, 0x3F8 + 5
+.w3: in al, dx
+    test al, 0x20
+    jz .w3
+    mov edx, 0x3F8
+    mov al, 0x33        ; '3'
+    out dx, al
+
     call longmode_enter
 
-    ; should never reach here
+    ; print '4' if longmode_enter returned (bad)
+    mov edx, 0x3F8 + 5
+.w4: in al, dx
+    test al, 0x20
+    jz .w4
+    mov edx, 0x3F8
+    mov al, 0x34        ; '4'
+    out dx, al
+
     cli
     hlt
 [BITS 16]
