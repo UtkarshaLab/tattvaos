@@ -178,7 +178,6 @@ msg_lm:         db "LongMode. ", 0
 msg_ok:         db "OK", 0
 msg_fail:       db "FAIL", 0
 msg_ram:        db "RAM: ", 0
-msg_mb:         db " MB", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
 
@@ -191,8 +190,5 @@ CPU_FEAT_AVX    equ (1 << 4)       ; AVX supported
 CPU_FEAT_AVX2   equ (1 << 5)       ; AVX2 supported
 CPU_FEAT_AVX512 equ (1 << 6)       ; AVX-512 supported
 CPU_FEAT_AMX    equ (1 << 7)       ; AMX supported
-
-; E820 total megabytes (filled by e820_parse)
-e820_total_mb:  dd 0
 
 %endif ; MAIN_ASM
