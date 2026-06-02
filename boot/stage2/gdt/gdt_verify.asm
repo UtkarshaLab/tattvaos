@@ -136,13 +136,16 @@ gdt_verify:
 ; =============================================================================
 uart_print_pm:
     push eax
+    push ebx
     push edx
     push esi
 
 .pm_print_loop:
-    lodsb
+    lodsb                           ; AL = [ESI], ESI++
     test al, al
     jz .pm_print_done
+
+    mov bl, al                      ; save character in BL
 
     ; wait for THRE (transmitter empty)
 .pm_wait:
@@ -151,10 +154,7 @@ uart_print_pm:
     test al, 0x20
     jz .pm_wait
 
-    ; send character
-    lodsb                           ; re-read — wait loop clobbered AL
-    ; fix: save char before wait loop
-    ; TODO: refactor — for now this works if UART is fast enough
+    mov al, bl                      ; restore character
     mov edx, UART_COM1
     out dx, al
 
@@ -163,6 +163,7 @@ uart_print_pm:
 .pm_print_done:
     pop esi
     pop edx
+    pop ebx
     pop eax
     ret
 
