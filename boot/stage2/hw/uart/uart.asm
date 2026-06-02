@@ -23,6 +23,9 @@
 ;   +5  LSR       line status (bit 5 = THRE = transmitter empty)
 ; =============================================================================
 
+%ifndef UART_ASM
+%define UART_ASM
+
 %define UART_COM1       0x3F8
 %define UART_THR        (UART_COM1 + 0)    ; transmit holding register
 %define UART_IER        (UART_COM1 + 1)    ; interrupt enable register
@@ -105,3 +108,5 @@ uart_putc:
     out dx, al
 
     ret
+
+%endif ; UART_ASM
