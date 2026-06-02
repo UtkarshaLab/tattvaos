@@ -18,27 +18,12 @@
 ; Output: IDT loaded
 ; Clobbers: none
 ; =============================================================================
+[BITS 32]
 idt_setup:
     push eax
 
-    ; Print '1' at start of idt_setup
-    mov dx, 0x3F8
-    mov al, '1'
-    out dx, al
-
     call idt_build                  ; populate IDT entries at runtime
-
-    ; Print '2' after idt_build
-    mov dx, 0x3F8
-    mov al, '2'
-    out dx, al
-
     lidt [idt_descriptor]
-
-    ; Print '3' after lidt
-    mov dx, 0x3F8
-    mov al, '3'
-    out dx, al
 
     pop eax
     ret
