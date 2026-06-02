@@ -107,15 +107,15 @@ stage2_main:
     mov si, msg_kernel
     call uart_print
 
-    mov ax, 0x2000                  ; segment 0x2000 = physical 0x20000
+    mov ax, (KERNEL_TEMP >> 4)          ; segment for KERNEL_TEMP (0x2000)
     mov es, ax
-    xor bx, bx                      ; ES:BX = 0x2000:0x0000
+    xor bx, bx                      ; ES:BX = KERNEL_TEMP segment:0x0000
 
     mov ah, 0x02                    ; BIOS read sectors function
-    mov al, 64                      ; read 64 sectors (32KB)
+    mov al, KERNEL_SECTORS          ; number of sectors to read
     mov ch, 0                       ; cylinder 0
     mov dh, 0                       ; head 0
-    mov cl, 18                      ; sector 18 (directly after MBR + Stage2)
+    mov cl, KERNEL_SECTOR           ; starting sector (1-indexed CHS)
     mov dl, [boot_drive]
     int 0x13
     jc .kernel_failed
