@@ -132,9 +132,11 @@ stage2_entry:
 %include "e820.asm"
 %include "gdt_load.asm"
 %include "gdt_verify.asm"
+%include "idt_load.asm"
 %include "paging.asm"
 %include "paging_map.asm"
 %include "paging_verify.asm"
+
 
 
 ; =============================================================================
