@@ -25,8 +25,8 @@ kernel_load:
     push rdi
     push rcx
 
-    ; KERNEL_TEMP is loaded at physical address 0x20000
-    mov rsi, 0x20000                ; source: 0x20000 (KERNEL_TEMP)
+    ; Source: KERNEL_TEMP loaded by BIOS int 0x13 in real mode
+    mov rsi, KERNEL_TEMP            ; source: 0x20000 (KERNEL_TEMP)
     mov rdi, KERNEL_LOAD            ; destination: 0x100000 (1MB)
     
     ; Copy 64KB (sufficient for early unikernel binaries)
