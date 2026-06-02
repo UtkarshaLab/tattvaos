@@ -126,6 +126,16 @@ stage2_entry:
 %include "uart_print.asm"
 %include "uart_hex.asm"
 %include "main.asm"
+%include "a20.asm"
+%include "cpuid.asm"
+%include "longmode.asm"
+%include "e820.asm"
+%include "gdt_load.asm"
+%include "gdt_verify.asm"
+%include "paging.asm"
+%include "paging_map.asm"
+%include "paging_verify.asm"
+
 
 ; =============================================================================
 ; Strings
