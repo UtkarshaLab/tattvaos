@@ -26,12 +26,6 @@
 [BITS 16]
 [ORG 0x8000]
 
-; -----------------------------------------------------------------------------
-; includes
-; -----------------------------------------------------------------------------
-%include "config.asm"
-%include "boot_drive.asm"
-
 ; =============================================================================
 ; MAGIC NUMBER — must be first 4 bytes of binary
 ; stage1/entry.asm reads [STAGE2_LOAD] and compares to STAGE2_MAGIC
@@ -41,6 +35,12 @@ stage2_magic:
     dd STAGE2_MAGIC                 ; 0x32535442 "BTS2"
                                     ; MUST be at offset 0x0000 of this file
                                     ; MUST be first thing assembled
+
+; -----------------------------------------------------------------------------
+; includes
+; -----------------------------------------------------------------------------
+%include "config.asm"
+%include "boot_drive.asm"
 
 ; =============================================================================
 ; stage2_entry — execution begins here after magic
