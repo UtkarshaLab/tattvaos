@@ -54,6 +54,7 @@ longmode_check:
     stc
     ret
 
+[BITS 32]
 ; =============================================================================
 ; longmode_enter — switch from protected mode to long mode
 ; Input:  GDT loaded, paging set up, PML4 at PAGING_PML4
