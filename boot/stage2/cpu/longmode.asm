@@ -63,14 +63,6 @@ longmode_check:
 ; =============================================================================
 longmode_enter:
 
-    ; print 'A' — entered longmode_enter
-    mov edx, 0x3F8 + 5
-.wA: in al, dx
-    test al, 0x20
-    jz .wA
-    mov edx, 0x3F8
-    mov al, 0x41
-    out dx, al
 
     ; -------------------------------------------------------------------------
     ; STEP 1: Enable PAE in CR4
@@ -91,16 +83,6 @@ longmode_enter:
     mov eax, PAGING_PML4            ; PML4 physical address
     mov cr3, eax
 
-    ; print 'B' — CR3 loaded
-    push eax
-    mov edx, 0x3F8 + 5
-.wB: in al, dx
-    test al, 0x20
-    jz .wB
-    mov edx, 0x3F8
-    mov al, 0x42
-    out dx, al
-    pop eax
 
     ; -------------------------------------------------------------------------
     ; STEP 3: Enable LME in EFER MSR
@@ -118,29 +100,9 @@ longmode_enter:
     or eax, EFER_NXE                ; set No-Execute Enable
 .no_nx_enable:
 
-    ; print 'C' — before wrmsr
-    push eax
-    mov edx, 0x3F8 + 5
-.wC: in al, dx
-    test al, 0x20
-    jz .wC
-    mov edx, 0x3F8
-    mov al, 0x43        ; 'C'
-    out dx, al
-    pop eax
 
     wrmsr                           ; write back EFER
 
-    ; print 'D' — after wrmsr
-    push eax
-    mov edx, 0x3F8 + 5
-.wD: in al, dx
-    test al, 0x20
-    jz .wD
-    mov edx, 0x3F8
-    mov al, 0x44        ; 'D'
-    out dx, al
-    pop eax
 
     ; -------------------------------------------------------------------------
     ; STEP 4: Enable paging and protected mode simultaneously in CR0
@@ -152,29 +114,9 @@ longmode_enter:
     and eax, ~CR0_EM                ; clear EM (enable SSE, not emulation)
     or eax, CR0_MP                  ; set MP (monitor coprocessor)
 
-    ; print 'E' — before mov cr0, eax
-    push eax
-    mov edx, 0x3F8 + 5
-.wE: in al, dx
-    test al, 0x20
-    jz .wE
-    mov edx, 0x3F8
-    mov al, 0x45        ; 'E'
-    out dx, al
-    pop eax
 
     mov cr0, eax
 
-    ; print 'F' — after mov cr0, eax
-    push eax
-    mov edx, 0x3F8 + 5
-.wF: in al, dx
-    test al, 0x20
-    jz .wF
-    mov edx, 0x3F8
-    mov al, 0x46        ; 'F'
-    out dx, al
-    pop eax
 
     ; -------------------------------------------------------------------------
     ; STEP 5: Far jump to 64-bit code segment
