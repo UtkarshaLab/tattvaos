@@ -24,19 +24,8 @@
 %include "a20_verify.asm"
 %include "a20_port92.asm"
 
-; stubs for methods not yet implemented
-; these will be replaced when a20_bios.asm and a20_kbd.asm are written
-%ifndef A20_BIOS_ASM
-a20_bios:
-    stc                             ; stub: always fails (not implemented yet)
-    ret
-%endif
-
-%ifndef A20_KBD_ASM
-a20_kbd:
-    stc                             ; stub: always fails (not implemented yet)
-    ret
-%endif
+%include "a20_bios.asm"
+%include "a20_kbd.asm"
 
 ; =============================================================================
 ; a20_enable — try all A20 methods until one works
