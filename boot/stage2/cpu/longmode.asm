@@ -62,6 +62,15 @@ longmode_check:
 ; =============================================================================
 longmode_enter:
 
+    ; print 'A' — entered longmode_enter
+    mov edx, 0x3F8 + 5
+.wA: in al, dx
+    test al, 0x20
+    jz .wA
+    mov edx, 0x3F8
+    mov al, 0x41
+    out dx, al
+
     ; -------------------------------------------------------------------------
     ; STEP 1: Enable PAE in CR4
     ; PAE must be set before loading CR3 or enabling LME
@@ -80,6 +89,17 @@ longmode_enter:
     ; -------------------------------------------------------------------------
     mov eax, PAGING_PML4            ; PML4 physical address
     mov cr3, eax
+
+    ; print 'B' — CR3 loaded
+    push eax
+    mov edx, 0x3F8 + 5
+.wB: in al, dx
+    test al, 0x20
+    jz .wB
+    mov edx, 0x3F8
+    mov al, 0x42
+    out dx, al
+    pop eax
 
     ; -------------------------------------------------------------------------
     ; STEP 3: Enable LME in EFER MSR
