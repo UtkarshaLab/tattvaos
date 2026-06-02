@@ -57,6 +57,11 @@ idt_descriptor:
 idt_build:
     pushad
 
+    ; Print 'B' (entering idt_build)
+    mov dx, 0x3F8
+    mov al, 'B'
+    out dx, al
+
     mov edi, idt_start              ; destination: IDT
     mov esi, idt_handler_table      ; source: handler addresses
     mov ecx, 32                     ; 32 entries
@@ -85,6 +90,11 @@ idt_build:
 
     add edi, 8                      ; advance to next IDT entry
     loop .fill_entry
+
+    ; Print 'E' (exiting idt_build)
+    mov dx, 0x3F8
+    mov al, 'E'
+    out dx, al
 
     popad
     ret
