@@ -107,29 +107,88 @@ stage2_main:
     mov si, msg_kernel
     call uart_print
 
-    mov ax, (KERNEL_TEMP >> 4)          ; segment for KERNEL_TEMP (0x2000)
+    mov ax, (KERNEL_TEMP >> 4)      ; segment for KERNEL_TEMP (0x2000)
     mov es, ax
     xor bx, bx                      ; ES:BX = KERNEL_TEMP segment:0x0000
 
-    mov ah, 0x02                    ; BIOS read sectors function
-    mov al, KERNEL_SECTORS          ; number of sectors to read
-    mov ch, 0                       ; cylinder 0
-    mov dh, 0                       ; head 0
-    mov cl, KERNEL_SECTOR           ; starting sector (1-indexed CHS)
-    mov dl, [boot_drive]
-    int 0x13
-    jc .kernel_failed
+    mov bp, 17                      ; BP = current LBA (starts at 17, next after stage2)
+    mov di, KERNEL_SECTORS          ; DI = sectors left to read
 
+.read_loop:
+    ; Convert LBA (in BP) to CHS (floppy 1.44MB layout)
+    mov ax, bp
+    xor dx, dx
+    mov cx, 18                      ; 18 sectors per track
+    div cx                          ; AX = LBA / 18, DX = LBA % 18
+    
+    inc dx                          ; DX = Sector (1-indexed, 1 to 18)
+    mov cl, dl                      ; CL = Sector
+    
+    xor dx, dx
+    mov cx, 2                       ; 2 Heads
+    div cx                          ; AX = Cylinder (AX / 2), DX = Head (AX % 2)
+    
+    mov ch, al                      ; CH = Cylinder
+    mov dh, dl                      ; DH = Head
+    
+    mov dl, [boot_drive]            ; DL = boot drive
+    
+    ; Setup retry loop
+    mov si, DISK_RETRY              ; SI = retry count (3)
+
+.retry:
+    mov ax, 0x0201                  ; AH = 0x02 (read), AL = 0x01 (1 sector)
+    int 0x13
+    jnc .read_ok                    ; if carry clear, read was successful
+
+    ; read failed, reset disk system (AH=0) and retry
+    push ax
+    xor ax, ax
+    int 0x13
+    pop ax
+    
+    dec si
+    jnz .retry                      ; retry if we still have retries left
+    
+    ; If we ran out of retries, it's a hard failure
+    jmp .read_failed
+
+.read_ok:
+    ; Successfully read 1 sector!
+    add bx, 512                     ; advance buffer offset
+    inc bp                          ; advance LBA
+    dec di                          ; decrement sectors left
+    jnz .read_loop                  ; continue if DI > 0
+
+    ; All sectors read successfully!
     xor ax, ax
     mov es, ax                      ; restore ES to 0x0000
-
+    
     mov si, msg_ok
     call uart_println
     jmp .kernel_done
 
-.kernel_failed:
+.read_failed:
+    ; AH contains the BIOS error code. Save it in DL
+    xor dx, dx
+    mov dl, ah
+    
+    xor ax, ax
+    mov es, ax                      ; restore ES to 0x0000
+    
     mov si, msg_fail
+    call uart_print
+    
+    ; Print " (Error: 0xXX)"
+    mov si, msg_err_prefix
+    call uart_print
+    
+    mov al, dl                      ; AL = error code
+    call uart_print_hex8
+    
+    mov si, msg_err_suffix
     call uart_println
+    
     mov si, msg_kernel_halt
     call uart_println
     jmp .halt
@@ -166,6 +225,8 @@ msg_ok:         db "OK", 0
 msg_fail:       db "FAIL", 0
 msg_ram:        db "RAM: ", 0
 msg_kernel:     db "Kernel... ", 0
+msg_err_prefix: db " (Error: ", 0
+msg_err_suffix: db ")", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
 msg_kernel_halt:db "HALT: Kernel load failed", 0
