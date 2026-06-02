@@ -190,13 +190,6 @@ longmode_64:
     cli
     hlt
 
-; =============================================================================
-; kernel_load stub — replaced when fs/ modules are ready
-; =============================================================================
-kernel_load:
-    ; stub: kernel loading not yet implemented
-    ; when stage2/fs/ is ready this loads ULF kernel from disk
-    ret
 
 ; =============================================================================
 ; Data (in 64-bit section)
