@@ -199,7 +199,7 @@ relocated_entry:
     ; Stage2 will re-save it immediately on entry.
     ; -------------------------------------------------------------------------
     mov dl, [boot_drive]            ; restore DL for stage2
-    jmp STAGE2_LOAD                 ; jump to 0x8000
+    jmp STAGE2_LOAD + 4             ; jump to 0x8004 (skip magic number)
 
 .magic_error:
     mov si, msg_magic_error
