@@ -18,6 +18,7 @@ stage2/stage2.bin: stage2/entry.asm
 		-i stage2/ -i stage2/a20/ -i stage2/cpu/ \
 		-i stage2/gdt/ -i stage2/idt/ -i stage2/paging/ \
 		-i stage2/memory/ -i stage2/fs/ -i stage2/hw/uart/ \
+		-i stage1/ \
 		-i . \
 		-o stage2/stage2.bin
 
