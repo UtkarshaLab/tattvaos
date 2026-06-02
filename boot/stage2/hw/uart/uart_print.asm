@@ -118,4 +118,70 @@ uart_print_dec:
     pop ebx
     ret
 
+[BITS 64]
+; =============================================================================
+; 64-bit UART functions for Long Mode
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; uart_putc_64 — send a single character via COM1 in 64-bit mode (polling)
+; Input:  AL = character to send
+; Output: nothing
+; Clobbers: none (preserves all)
+; -----------------------------------------------------------------------------
+uart_putc_64:
+    push rdx
+    push rax
+
+.wait:
+    mov dx, 0x3F8 + 5               ; LSR
+    in al, dx
+    test al, 0x20                   ; THRE
+    jz .wait
+
+    pop rax
+    mov dx, 0x3F8                   ; THR
+    out dx, al
+    pop rdx
+    ret
+
+; -----------------------------------------------------------------------------
+; uart_print_64 — print null-terminated string in 64-bit mode
+; Input:  RSI = pointer to string
+; Output: nothing
+; Clobbers: none
+; -----------------------------------------------------------------------------
+uart_print_64:
+    push rax
+    push rsi
+
+.loop:
+    lodsb                           ; load byte from [RSI] into AL, advance RSI
+    test al, al                     ; null?
+    jz .done
+    call uart_putc_64
+    jmp .loop
+
+.done:
+    pop rsi
+    pop rax
+    ret
+
+; -----------------------------------------------------------------------------
+; uart_println_64 — print string + CRLF in 64-bit mode
+; Input:  RSI = pointer to string
+; Output: nothing
+; -----------------------------------------------------------------------------
+uart_println_64:
+    call uart_print_64
+    push rax
+    mov al, 0x0D
+    call uart_putc_64
+    mov al, 0x0A
+    call uart_putc_64
+    pop rax
+    ret
+
+[BITS 16]
+
 %endif ; UART_PRINT_ASM

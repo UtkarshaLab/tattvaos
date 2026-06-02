@@ -39,18 +39,6 @@
 %include "paging_huge.asm"
 %include "paging_nx.asm"
 
-; -----------------------------------------------------------------------------
-; Page table physical addresses
-; Chosen to be above BIOS area and below stage2
-; Must not overlap with E820_DEST (0x6000), FEATURES_DEST (0x5000)
-; or SURVIVE_PAGE (0x9000)
-; -----------------------------------------------------------------------------
-PAGING_PML4     equ 0x10000        ; PML4 table
-PAGING_PDPT     equ 0x11000        ; PDPT table (one covers 512GB)
-PAGING_PD0      equ 0x12000        ; PD for 0GB - 1GB
-PAGING_PD1      equ 0x13000        ; PD for 1GB - 2GB
-PAGING_PD2      equ 0x14000        ; PD for 2GB - 3GB
-PAGING_PD3      equ 0x15000        ; PD for 3GB - 4GB
 
 ; Page entry flags
 PAGE_PRESENT    equ 0x01            ; bit 0: page is present

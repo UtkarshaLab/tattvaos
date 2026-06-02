@@ -212,8 +212,8 @@ longmode_64:
     ; STEP 7: Enable AVX via XSETBV if supported
     ; CR4.OSXSAVE must be set first, then XSETBV sets XCR0
     ; -------------------------------------------------------------------------
-    mov rax, [FEATURES_DEST]
-    test rax, CPU_FEAT_AVX
+    mov eax, [FEATURES_DEST]
+    test eax, CPU_FEAT_AVX
     jz .no_avx_enable
 
     ; set CR4.OSXSAVE
@@ -234,8 +234,7 @@ longmode_64:
     ; (UART still works in long mode, same port I/O)
     ; -------------------------------------------------------------------------
     mov rsi, msg_longmode_ok
-    call uart_print                 ; note: uart_print needs 64-bit version
-    ; TODO: print CRLF
+    call uart_print_64              ; note: uart_print needs 64-bit version
 
     ; -------------------------------------------------------------------------
     ; STEP 9: Load and jump to kernel

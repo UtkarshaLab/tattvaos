@@ -209,7 +209,7 @@ uart_print_hex64:
     ; print "0x" prefix
     push rax
     mov rsi, str_0x
-    call uart_print
+    call uart_print_64
     pop rax
 
     ; print 16 nibbles from high to low
@@ -222,7 +222,7 @@ uart_print_hex64:
     shr rdx, cl                     ; shift right by cl
     and rdx, 0x0F                   ; isolate nibble
     mov al, [hex_chars + edx]
-    call uart_putc
+    call uart_putc_64
     pop rcx
     pop rax
     sub rcx, 4                      ; next nibble
@@ -232,7 +232,7 @@ uart_print_hex64:
     ; print last nibble
     and rax, 0x0F
     mov al, [hex_chars + eax]
-    call uart_putc
+    call uart_putc_64
 
     pop rdx
     pop rcx
