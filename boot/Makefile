@@ -44,17 +44,17 @@ run: boot.img
 debug: boot.img
 	$(QEMU32) -drive format=raw,file=boot.img -serial stdio -s -S &
 	gdb -ex "set architecture i8086" \
-	    -ex "target remote :1234" \
-	    -ex "break *0x7C00" \
-	    -ex "continue"
+		-ex "target remote :1234" \
+		-ex "break *0x7C00" \
+		-ex "continue"
 
 # Debug stage2 (32-bit protected mode)
 debug32: boot.img
 	$(QEMU32) -drive format=raw,file=boot.img -serial stdio -s -S &
 	gdb -ex "set architecture i386" \
-	    -ex "target remote :1234" \
-	    -ex "break *0x8000" \
-	    -ex "continue"
+		-ex "target remote :1234" \
+		-ex "break *0x8000" \
+		-ex "continue"
 
 # Run tests
 test: boot.img
