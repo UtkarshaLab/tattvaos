@@ -9,9 +9,9 @@
 %define IDT_LOAD_ASM
 
 %include "idt_handlers.asm"
-%include "idt.asm"
 
 [BITS 32]
+%include "idt.asm"
 ; =============================================================================
 ; idt_setup — load the 32-bit Protected Mode IDT
 ; Input:  nothing
