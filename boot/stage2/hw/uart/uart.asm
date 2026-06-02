@@ -26,7 +26,8 @@
 %ifndef UART_ASM
 %define UART_ASM
 
-%define UART_COM1       0x3F8
+%include "config.asm"
+
 %define UART_THR        (UART_COM1 + 0)    ; transmit holding register
 %define UART_IER        (UART_COM1 + 1)    ; interrupt enable register
 %define UART_FCR        (UART_COM1 + 2)    ; FIFO control register
