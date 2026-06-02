@@ -26,12 +26,12 @@ test_a20:
     call a20_verify                 ; verify A20 line status
     jc .failed
 
-    mov si, msg_pass
+    mov si, msg_pass_a20
     call uart_println
     jmp .done
 
 .failed:
-    mov si, msg_fail
+    mov si, msg_fail_a20
     call uart_println
 
 .done:
@@ -42,7 +42,7 @@ test_a20:
 ; Data
 ; =============================================================================
 msg_test_a20:   db "TEST: A20 gate address wrap-around... ", 0
-msg_pass:       db "PASS", 0
-msg_fail:       db "FAIL", 0
+msg_pass_a20:   db "PASS", 0
+msg_fail_a20:   db "FAIL", 0
 
 %endif ; TEST_A20_ASM
