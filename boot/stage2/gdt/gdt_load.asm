@@ -75,6 +75,17 @@ gdt_setup:
 ; =============================================================================
 [BITS 32]
 pm32_entry:
+    ; quick UART test — write 'P' directly to port (no function call)
+    ; if we see 'P' in serial output we reached 32-bit PM
+    mov edx, 0x3F8 + 5             ; LSR
+.pm_wait:
+    in al, dx
+    test al, 0x20
+    jz .pm_wait
+    mov edx, 0x3F8
+    mov al, 0x50                   ; 'P'
+    out dx, al
+
     ; -------------------------------------------------------------------------
     ; Step 5: Reload ALL data segment registers
     ; After the far jump CS is loaded with SEL_CODE32.
