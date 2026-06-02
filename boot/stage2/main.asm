@@ -102,63 +102,15 @@ stage2_main:
 .mem_done:
 
     ; -------------------------------------------------------------------------
-    ; STEP 4: Setup GDT
+    ; STEP 4: Setup GDT — never returns, continues in 32-bit protected mode
     ; -------------------------------------------------------------------------
     mov si, msg_gdt
     call uart_print
 
-    call gdt_setup                  ; load GDT, far jump to protected mode
-                                    ; reloads all segment registers
+    call gdt_setup                  ; far jumps to pm32_entry, never returns
 
-    mov si, msg_ok
-    call uart_println
-
-    ; -------------------------------------------------------------------------
-    ; STEP 5: Setup IDT
-    ; -------------------------------------------------------------------------
-    mov si, msg_idt
-    call uart_print
-
-    call idt_setup                  ; install exception handlers
-
-    mov si, msg_ok
-    call uart_println
-
-    ; -------------------------------------------------------------------------
-    ; STEP 6: Setup paging
-    ; -------------------------------------------------------------------------
-    mov si, msg_paging
-    call uart_print
-
-    call paging_setup               ; identity map, 2MB huge pages
-
-    mov si, msg_ok
-    call uart_println
-
-    ; -------------------------------------------------------------------------
-    ; STEP 7: Enable long mode
-    ; -------------------------------------------------------------------------
-    mov si, msg_lm
-    call uart_print
-
-    call longmode_enter             ; PAE → CR3 → EFER.LME → CR0 → far jump
-
-    ; if we get here long mode failed
-    mov si, msg_fail
-    call uart_println
+    ; never reaches here
     jmp .halt
-
-    ; -------------------------------------------------------------------------
-    ; STEP 8: Enable SSE/AVX (done inside longmode_enter after switch)
-    ; -------------------------------------------------------------------------
-
-    ; -------------------------------------------------------------------------
-    ; STEP 9: Load kernel (called from longmode 64-bit code after switch)
-    ; -------------------------------------------------------------------------
-
-    ; -------------------------------------------------------------------------
-    ; STEP 10: Jump to kernel (never returns)
-    ; -------------------------------------------------------------------------
 
 .halt:
     cli
@@ -190,5 +142,27 @@ CPU_FEAT_AVX    equ (1 << 4)       ; AVX supported
 CPU_FEAT_AVX2   equ (1 << 5)       ; AVX2 supported
 CPU_FEAT_AVX512 equ (1 << 6)       ; AVX-512 supported
 CPU_FEAT_AMX    equ (1 << 7)       ; AMX supported
+
+; =============================================================================
+; stage2_main_pm32 — 32-bit protected mode continuation
+; Called from pm32_entry in gdt_load.asm after GDT far jump.
+; Continues boot: IDT → paging → long mode.
+; Never returns.
+; =============================================================================
+[BITS 32]
+stage2_main_pm32:
+    ; IDT setup
+    call idt_setup
+
+    ; paging setup
+    call paging_setup
+
+    ; enter long mode — never returns
+    call longmode_enter
+
+    ; should never reach here
+    cli
+    hlt
+[BITS 16]
 
 %endif ; MAIN_ASM

@@ -101,13 +101,12 @@ pm32_entry:
     mov esp, STACK_PROT
 
     ; -------------------------------------------------------------------------
-    ; Step 7: Return to caller (still in 32-bit PM)
-    ; Caller (main.asm / longmode.asm) will proceed with:
-    ;   - IDT setup
-    ;   - Paging setup
-    ;   - Long mode switch
-    ; -------------------------------------------------------------------------
-    ret
+    ; continue boot in 32-bit protected mode
+    call stage2_main_pm32
+
+    ; never returns
+    cli
+    hlt
 
 ; Switch assembler back to 16-bit for rest of stage2 files
 [BITS 16]
