@@ -13,7 +13,7 @@
 [BITS 32]
 %include "idt.asm"
 ; =============================================================================
-; idt_setup — load the 32-bit Protected Mode IDT
+; idt_setup — build and load the 32-bit Protected Mode IDT
 ; Input:  nothing
 ; Output: IDT loaded
 ; Clobbers: none
@@ -21,6 +21,7 @@
 idt_setup:
     push eax
 
+    call idt_build                  ; populate IDT entries at runtime
     lidt [idt_descriptor]
 
     pop eax
