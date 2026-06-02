@@ -194,6 +194,7 @@ uart_print_hex32:
     pop eax
     ret
 
+[BITS 64]
 ; =============================================================================
 ; uart_print_hex64 — print 64-bit value as "0x################"
 ; Input:  RAX = value (64-bit, long mode only)
@@ -220,7 +221,7 @@ uart_print_hex64:
     mov rdx, rax
     shr rdx, cl                     ; shift right by cl
     and rdx, 0x0F                   ; isolate nibble
-    mov al, [hex_chars + rdx]
+    mov al, [hex_chars + edx]
     call uart_putc
     pop rcx
     pop rax
@@ -230,13 +231,14 @@ uart_print_hex64:
 
     ; print last nibble
     and rax, 0x0F
-    mov al, [hex_chars + rax]
+    mov al, [hex_chars + eax]
     call uart_putc
 
     pop rdx
     pop rcx
     pop rax
     ret
+[BITS 16]
 
 ; =============================================================================
 ; uart_print_addr — print address with label
