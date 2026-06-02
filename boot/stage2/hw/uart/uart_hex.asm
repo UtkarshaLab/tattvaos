@@ -31,10 +31,13 @@ hex_chars: db "0123456789ABCDEF"
 ; Clobbers: AL, DX
 ; =============================================================================
 uart_print_hex_nibble:
+    push bx
     and al, 0x0F                    ; isolate lower nibble
-    mov si, hex_chars
-    xlat                            ; AL = hex_chars[AL]
+    mov bh, 0
+    mov bl, al
+    mov al, [hex_chars + bx]
     call uart_putc
+    pop bx
     ret
 
 ; =============================================================================
