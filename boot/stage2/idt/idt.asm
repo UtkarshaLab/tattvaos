@@ -13,13 +13,6 @@
 
 %include "selectors.asm"
 
-; Declare exception handler symbols from idt_handlers.asm
-%assign i 0
-%rep 32
-    extern exc_handler_%[i]
-    %assign i i+1
-%endrep
-
 ; -----------------------------------------------------------------------------
 ; IDT entry generation macro
 ; Format of 32-bit Interrupt Gate (8 bytes):
