@@ -278,32 +278,9 @@ CPU_FEAT_AMX    equ (1 << 7)       ; AMX supported
 ; =============================================================================
 [BITS 32]
 stage2_main_pm32:
-    ; Print 'I' for IDT Setup
-    mov dx, 0x3F8
-    mov al, 'I'
-    out dx, al
-
     call idt_setup
-
-    ; Print 'P' for Paging Setup
-    mov dx, 0x3F8
-    mov al, 'P'
-    out dx, al
-
     call paging_setup
-
-    ; Print 'S' for SIMD Setup
-    mov dx, 0x3F8
-    mov al, 'S'
-    out dx, al
-
     call simd_enable
-
-    ; Print 'L' for Long Mode Setup
-    mov dx, 0x3F8
-    mov al, 'L'
-    out dx, al
-
     call longmode_enter
 
     cli
