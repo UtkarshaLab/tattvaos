@@ -3,6 +3,7 @@ QEMU64  = qemu-system-x86_64
 QEMU32  = qemu-system-i386
 
 STAGE1_MAX = 512
+KERNEL_DIR = ../kernel
 
 all: boot.img check
 
@@ -22,11 +23,20 @@ stage2/stage2.bin: stage2/entry.asm
 		-i . \
 		-o stage2/stage2.bin
 
-# Disk image
-boot.img: stage1/stage1.bin stage2/stage2.bin
+# Kernel stub
+$(KERNEL_DIR)/kernel_stub.bin: $(KERNEL_DIR)/kernel_stub.asm
+	$(ASM) -f bin $(KERNEL_DIR)/kernel_stub.asm \
+		-o $(KERNEL_DIR)/kernel_stub.bin
+
+# Disk image layout:
+#   Sector 0       = stage1 (MBR, 512 bytes)
+#   Sector 1-16    = stage2 (up to 8KB)
+#   Sector 17+     = kernel (seek=17 = CHS sector 18)
+boot.img: stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin
 	dd if=/dev/zero of=boot.img bs=512 count=2880
 	dd if=stage1/stage1.bin of=boot.img conv=notrunc
 	dd if=stage2/stage2.bin of=boot.img bs=512 seek=1 conv=notrunc
+	dd if=$(KERNEL_DIR)/kernel_stub.bin of=boot.img bs=512 seek=17 conv=notrunc
 
 # Enforce 512 byte MBR size — never disable this
 check: stage1/stage1.bin
@@ -62,4 +72,4 @@ test: boot.img
 	bash tests/run_all.sh
 
 clean:
-	rm -f boot.img stage1/stage1.bin stage2/stage2.bin
+	rm -f boot.img stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin
