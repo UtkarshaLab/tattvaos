@@ -102,6 +102,41 @@ stage2_main:
 .mem_done:
 
     ; -------------------------------------------------------------------------
+    ; STEP 3.5: Load kernel from disk (Option A)
+    ; -------------------------------------------------------------------------
+    mov si, msg_kernel
+    call uart_print
+
+    mov ax, 0x2000                  ; segment 0x2000 = physical 0x20000
+    mov es, ax
+    xor bx, bx                      ; ES:BX = 0x2000:0x0000
+
+    mov ah, 0x02                    ; BIOS read sectors function
+    mov al, 64                      ; read 64 sectors (32KB)
+    mov ch, 0                       ; cylinder 0
+    mov dh, 0                       ; head 0
+    mov cl, 18                      ; sector 18 (directly after MBR + Stage2)
+    mov dl, [boot_drive]
+    int 0x13
+    jc .kernel_failed
+
+    xor ax, ax
+    mov es, ax                      ; restore ES to 0x0000
+
+    mov si, msg_ok
+    call uart_println
+    jmp .kernel_done
+
+.kernel_failed:
+    mov si, msg_fail
+    call uart_println
+    mov si, msg_kernel_halt
+    call uart_println
+    jmp .halt
+
+.kernel_done:
+
+    ; -------------------------------------------------------------------------
     ; STEP 4: Setup GDT — never returns, continues in 32-bit protected mode
     ; -------------------------------------------------------------------------
     mov si, msg_gdt
@@ -130,8 +165,10 @@ msg_lm:         db "LongMode. ", 0
 msg_ok:         db "OK", 0
 msg_fail:       db "FAIL", 0
 msg_ram:        db "RAM: ", 0
+msg_kernel:     db "Kernel... ", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
+msg_kernel_halt:db "HALT: Kernel load failed", 0
 
 ; CPU feature flags (stored at FEATURES_DEST by cpu_detect)
 CPU_FEAT_LM     equ (1 << 0)       ; long mode supported
@@ -158,6 +195,7 @@ stage2_main_pm32:
 
     call paging_setup
 
+    call simd_enable
 
     call longmode_enter
 
