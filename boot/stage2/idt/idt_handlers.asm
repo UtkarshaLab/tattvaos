@@ -12,8 +12,6 @@
 %ifndef IDT_HANDLERS_ASM
 %define IDT_HANDLERS_ASM
 
-%include "config.asm"
-
 [BITS 32]
 
 ; =============================================================================
@@ -86,103 +84,103 @@ common_exc_handler:
     ; 1. Print Exception Header
     ; -------------------------------------------------------------------------
     mov esi, msg_exc_prefix
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; Print exception number in decimal
     mov eax, [esp + 32]             ; exception number
-    call uart_print_dec_pm
+    call uart_print_dec_pm_idt
 
     mov esi, msg_exc_colon
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; Lookup exception name
     mov eax, [esp + 32]
     and eax, 0x1F                   ; clamp to 0-31
     mov esi, [exception_names + eax * 4]
-    call uart_print_pm
+    call uart_print_pm_idt
 
     mov esi, msg_crlf
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; -------------------------------------------------------------------------
     ; 2. Print Instruction and Control Registers
     ; -------------------------------------------------------------------------
     mov esi, msg_eip
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 40]             ; EIP
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_cs
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 44]             ; CS
     and eax, 0xFFFF
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_eflags
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 48]             ; EFLAGS
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
     
     mov esi, msg_crlf
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; -------------------------------------------------------------------------
     ; 3. Print Register Dump
     ; -------------------------------------------------------------------------
     mov esi, msg_eax
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 28]             ; EAX
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_ebx
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 16]             ; EBX
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_ecx
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 24]             ; ECX
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_edx
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 20]             ; EDX
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
     
     mov esi, msg_crlf
-    call uart_print_pm
+    call uart_print_pm_idt
 
     mov esi, msg_esi
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 4]              ; ESI
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_edi
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 0]              ; EDI
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_ebp
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 8]              ; EBP
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
     mov esi, msg_esp
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, esp
     add eax, 32 + 20                ; ESP before exception (pushad + exc_num + err_code + EIP + CS + EFLAGS)
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
     
     mov esi, msg_crlf
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; -------------------------------------------------------------------------
     ; 4. Print Hardware Error Code and CR2 (if Page Fault)
     ; -------------------------------------------------------------------------
     mov esi, msg_err_code
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, [esp + 36]             ; Error code
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
     
     ; If exception was a Page Fault (14), print CR2
     mov eax, [esp + 32]
@@ -190,16 +188,16 @@ common_exc_handler:
     jne .skip_cr2
 
     mov esi, msg_cr2
-    call uart_print_pm
+    call uart_print_pm_idt
     mov eax, cr2
-    call uart_print_hex32_pm
+    call uart_print_hex32_pm_idt
 
 .skip_cr2:
     mov esi, msg_crlf
-    call uart_print_pm
+    call uart_print_pm_idt
 
     mov esi, msg_halt
-    call uart_print_pm
+    call uart_print_pm_idt
 
     ; -------------------------------------------------------------------------
     ; 5. Halt the system
@@ -214,23 +212,23 @@ common_exc_handler:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; uart_putc_pm — write a single character via COM1 (polling)
+; uart_putc_pm_idt — write a single character via COM1 (polling)
 ; Input:  AL = character to send
 ; Output: nothing
 ; -----------------------------------------------------------------------------
-uart_putc_pm:
+uart_putc_pm_idt:
     push edx
     push eax
     mov bl, al                      ; save character to BL
 
 .wait:
-    mov edx, UART_COM1 + 5          ; LSR (line status register)
+    mov edx, 0x3F8 + 5              ; LSR (line status register)
     in al, dx
     test al, 0x20                   ; transmitter empty?
     jz .wait
 
     mov al, bl                      ; restore character
-    mov edx, UART_COM1              ; THR (transmit holding register)
+    mov edx, 0x3F8                  ; THR (transmit holding register)
     out dx, al
 
     pop eax
@@ -238,11 +236,11 @@ uart_putc_pm:
     ret
 
 ; -----------------------------------------------------------------------------
-; uart_print_pm — print null-terminated string
+; uart_print_pm_idt — print null-terminated string
 ; Input:  ESI = pointer to string
 ; Output: nothing
 ; -----------------------------------------------------------------------------
-uart_print_pm:
+uart_print_pm_idt:
     push eax
     push esi
 
@@ -250,7 +248,7 @@ uart_print_pm:
     lodsb                           ; AL = [ESI], ESI++
     test al, al
     jz .done
-    call uart_putc_pm
+    call uart_putc_pm_idt
     jmp .loop
 
 .done:
@@ -259,11 +257,11 @@ uart_print_pm:
     ret
 
 ; -----------------------------------------------------------------------------
-; uart_print_dec_pm — print unsigned integer in decimal
+; uart_print_dec_pm_idt — print unsigned integer in decimal
 ; Input:  EAX = value
 ; Output: nothing
 ; -----------------------------------------------------------------------------
-uart_print_dec_pm:
+uart_print_dec_pm_idt:
     push eax
     push ecx
     push edx
@@ -272,7 +270,7 @@ uart_print_dec_pm:
     test eax, eax
     jnz .nonzero
     mov al, '0'
-    call uart_putc_pm
+    call uart_putc_pm_idt
     jmp .done
 
 .nonzero:
@@ -294,7 +292,7 @@ uart_print_dec_pm:
     pop edx
     mov al, dl
     add al, '0'
-    call uart_putc_pm
+    call uart_putc_pm_idt
     dec ecx
     jmp .print
 
@@ -306,11 +304,11 @@ uart_print_dec_pm:
     ret
 
 ; -----------------------------------------------------------------------------
-; uart_print_hex32_pm — print 32-bit value in hex "0x########"
+; uart_print_hex32_pm_idt — print 32-bit value in hex "0x########"
 ; Input:  EAX = value
 ; Output: nothing
 ; -----------------------------------------------------------------------------
-uart_print_hex32_pm:
+uart_print_hex32_pm_idt:
     push eax
     push ecx
     push edx
@@ -319,9 +317,9 @@ uart_print_hex32_pm:
 
     ; print "0x"
     mov al, '0'
-    call uart_putc_pm
+    call uart_putc_pm_idt
     mov al, 'x'
-    call uart_putc_pm
+    call uart_putc_pm_idt
 
     ; print 8 nibbles
     mov edx, 8
@@ -336,7 +334,7 @@ uart_print_hex32_pm:
 .digit:
     add al, '0'
 .print:
-    call uart_putc_pm
+    call uart_putc_pm_idt
     dec edx
     jnz .loop
 
