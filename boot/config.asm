@@ -15,6 +15,9 @@ STAGE1_LOAD     equ 0x7C00      ; BIOS loads MBR here
 STAGE1_RELOC    equ 0x0600      ; MBR relocates self here
 STAGE2_LOAD     equ 0x8000      ; stage2 loads here
 KERNEL_LOAD     equ 0x100000    ; kernel loads at 1MB mark
+KERNEL_TEMP     equ 0x20000     ; temporary real-mode buffer for BIOS load
+KERNEL_SECTOR   equ 18          ; CHS sector (1-indexed) where kernel starts on disk
+KERNEL_SECTORS  equ 64          ; number of sectors to read (64 × 512 = 32KB)
 STACK_REAL      equ 0x7C00      ; real mode stack top (grows down)
 STACK_PROT      equ 0x9C000     ; protected mode stack top
 STACK_LONG      equ 0x9C000     ; long mode stack top
