@@ -19,7 +19,6 @@
 ; =============================================================================
 
 %macro exc_handler_no_err 1
-global exc_handler_%1
 exc_handler_%1:
     push 0                          ; dummy error code
     push %1                         ; exception number
@@ -27,7 +26,6 @@ exc_handler_%1:
 %endmacro
 
 %macro exc_handler_err 1
-global exc_handler_%1
 exc_handler_%1:
     push %1                         ; exception number
     jmp common_exc_handler
