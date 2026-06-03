@@ -62,6 +62,12 @@ interrupts_init:
     jmp .loop_register
 
 .load_idt:
+    ; 2b. Register TLB shootdown ISR at vector 0xFB
+    mov rdi, 0xFB                   ; vector 0xFB
+    mov rsi, tlb_shootdown_isr      ; handler address
+    xor rdx, rdx                    ; no IST
+    call register_idt_handler
+
     ; 3. Load IDT limit/base structure
     lidt [idt_ptr]
     
