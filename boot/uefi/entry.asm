@@ -55,22 +55,44 @@ efi_main:
     jz .load_failed                 ; zero read size = failed to load kernel
 
     ; 4. Query GetMemoryMap to obtain size and MapKey
-    mov qword [uefi_map_size], 4096 ; allocate 4KB for memory map descriptors
+    mov qword [uefi_map_size], 16384 ; allocate 16KB for memory map descriptors
     mov rcx, [uefi_system_table]
     lea rdx, [uefi_mem_map_buf]
     lea r8, [uefi_map_size]
     call uefi_get_memory_map
-    ; RDX now contains the returned MapKey
+    test rax, rax
+    jnz .mem_map_failed             ; if non-zero status, query failed
 
     ; 5. Handoff to kernel (Exit Boot Services + Jump)
+    mov r8, rdx                     ; MapKey from uefi_get_memory_map return (in RDX)
     mov rcx, [uefi_system_table]
     mov rdx, [uefi_image_handle]
-    mov r8, rdx                     ; MapKey from uefi_get_memory_map return (in RDX)
     mov r9, 0x100000                ; KERNEL_LOAD entry point
     call uefi_handoff
 
-    ; If handoff returned, ExitBootServices failed
+    ; If we returned here, the first handoff failed (possibly due to changed memory map).
+    ; Refresh memory map size and query memory map again.
+    mov qword [uefi_map_size], 16384
+    mov rcx, [uefi_system_table]
+    lea rdx, [uefi_mem_map_buf]
+    lea r8, [uefi_map_size]
+    call uefi_get_memory_map
+    test rax, rax
+    jnz .mem_map_failed
+
+    ; Retry Handoff with updated MapKey
+    mov r8, rdx                     ; updated MapKey
+    mov rcx, [uefi_system_table]
+    mov rdx, [uefi_image_handle]
+    mov r9, 0x100000
+    call uefi_handoff
+
+    ; If handoff returned again, ExitBootServices failed permanently
     lea rdx, [msg_handoff_failed]
+    jmp .error_out
+
+.mem_map_failed:
+    lea rdx, [msg_mem_map_failed]
     jmp .error_out
 
 .load_failed:
@@ -106,7 +128,10 @@ msg_load_failed:
 msg_handoff_failed:
     dw 'E', 'R', 'R', 'O', 'R', ':', ' ', 'E', 'x', 'i', 't', 'B', 'o', 'o', 't', 'S', 'e', 'r', 'v', 'i', 'c', 'e', 's', ' ', 'f', 'a', 'i', 'l', 'e', 'd', 0x0D, 0x0A, 0
 
+msg_mem_map_failed:
+    dw 'E', 'R', 'R', 'O', 'R', ':', ' ', 'F', 'a', 'i', 'l', 'e', 'd', ' ', 't', 'o', ' ', 'g', 'e', 't', ' ', 'm', 'e', 'm', 'o', 'r', 'y', ' ', 'm', 'a', 'p', 0x0D, 0x0A, 0
+
 align 16
-uefi_mem_map_buf:   times 4096 db 0
+uefi_mem_map_buf:   times 16384 db 0
 
 %endif ; UEFI_ENTRY_ASM
