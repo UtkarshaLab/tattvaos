@@ -152,6 +152,7 @@ mm_init:
     mov rdi, rax
     mov rsi, 1024 * 4096            ; 4MB size
     call heap_init
+    call page_list_init
     ret
 
 .error:
