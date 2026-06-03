@@ -258,6 +258,7 @@ e820_merge:
     mov dx, 1                       ; read pointer j
 
 .merge_loop:
+    mov cx, [E820_DEST + E820_COUNT_OFF]
     cmp dx, cx
     jae .merge_finalize
 
@@ -345,16 +346,18 @@ e820_merge:
 
     ; copy entry[j] to entry[bx] if not already there
     mov ax, bx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = bx * 8
     mov di, ax
+    shl ax, 1                       ; AX = bx * 16
+    add di, ax                      ; DI = bx * 24
+    add di, E820_DEST + E820_ENTRIES_OFF
 
     mov ax, dx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = j * 8
     mov si, ax
+    shl ax, 1                       ; AX = j * 16
+    add si, ax                      ; SI = j * 24
+    add si, E820_DEST + E820_ENTRIES_OFF
 
     mov cx, E820_ENTRY_SIZE
     rep movsb
