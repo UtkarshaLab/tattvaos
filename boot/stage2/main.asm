@@ -102,6 +102,24 @@ stage2_main:
 .mem_done:
 
     ; -------------------------------------------------------------------------
+    ; STEP 3.4: Query disk geometry for CHS fallback
+    ; -------------------------------------------------------------------------
+    call disk_get_geometry
+
+    mov si, msg_geom_prefix
+    call uart_print
+    xor eax, eax
+    mov ax, [number_of_heads]
+    call uart_print_dec
+    mov si, msg_geom_heads
+    call uart_print
+    xor eax, eax
+    mov ax, [sectors_per_track]
+    call uart_print_dec
+    mov si, msg_geom_spt
+    call uart_println
+
+    ; -------------------------------------------------------------------------
     ; STEP 3.5: Load kernel from disk (Option A)
     ; -------------------------------------------------------------------------
     mov si, msg_kernel
@@ -133,22 +151,24 @@ stage2_main:
     mov di, KERNEL_SECTORS          ; DI = sectors left to read
 
 .read_loop:
-    ; Convert LBA (in BP) to CHS (floppy 1.44MB layout)
+    ; Convert LBA (in BP) to CHS using dynamic geometry variables
     mov ax, bp
     xor dx, dx
-    mov cx, 18                      ; 18 sectors per track
-    div cx                          ; AX = LBA / 18, DX = LBA % 18
+    mov cx, [sectors_per_track]
+    div cx                          ; AX = LBA / sectors_per_track, DX = LBA % sectors_per_track
     
-    inc dx                          ; DX = Sector (1-indexed, 1 to 18)
+    inc dx                          ; DX = Sector (1-indexed)
     mov cl, dl                      ; CL = Sector
     
     xor dx, dx
-    mov cx, 2                       ; 2 Heads
-    div cx                          ; AX = Cylinder (AX / 2), DX = Head (AX % 2)
+    mov cx, [number_of_heads]
+    div cx                          ; AX = Cylinder, DX = Head
     
-    mov ch, al                      ; CH = Cylinder
+    mov ch, al                      ; CH = Cylinder (low 8 bits)
+    shl ah, 6
+    or cl, ah                       ; CL bits 6-7 = cylinder bits 8-9
+    
     mov dh, dl                      ; DH = Head
-    
     mov dl, [boot_drive]            ; DL = boot drive
     
     ; Setup retry loop
@@ -251,6 +271,9 @@ msg_err_suffix: db ")", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
 msg_kernel_halt:db "HALT: Kernel load failed", 0
+msg_geom_prefix: db "Disk: ", 0
+msg_geom_heads:  db " Heads, ", 0
+msg_geom_spt:    db " Sectors/Track", 0
 
 ; LBA disk address packet for INT 13h AH=42h
 align 4
