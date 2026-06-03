@@ -139,6 +139,7 @@ uart_print_pm:
     push ebx
     push edx
     push esi
+    cld                             ; Clear direction flag for lodsb
 
 .pm_print_loop:
     lodsb                           ; AL = [ESI], ESI++
