@@ -30,6 +30,7 @@ extern uart_print_hex64
 ; =============================================================================
 survive_wakeup_entry:
     cli                             ; disable interrupts immediately
+    cld                             ; Clear direction flag for robust execution
 
     ; 1. Save all registers to 0x9A00 (crash snapshot)
     mov [0x9A00], rax
