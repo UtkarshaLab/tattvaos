@@ -14,6 +14,13 @@
 [BITS 64]
 [ORG 0x100000]
 
+ulf_header:
+    dd 0x00464C55                   ; magic: "ULF\0"
+    dd kernel_end - ulf_header      ; size of binary
+    dq kernel_entry                 ; dynamic entry point
+    dq 0x123456789ABCDEF0           ; checksum placeholder (patched by Makefile)
+    dq 0                            ; reserved
+
 kernel_entry:
     ; -------------------------------------------------------------------------
     ; The bootloader passes the BootInfo pointer in RDI.
@@ -201,5 +208,8 @@ kernel_entry:
 .msg_e820_entries: db "E820 Entries:  ", 0
 .msg_cpu_features: db "CPU Features:  ", 0
 .msg_crlf:         db 0x0D, 0x0A, 0
+
+align 8
+kernel_end:
 
 %endif ; KERNEL_STUB_ASM
