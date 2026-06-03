@@ -22,6 +22,12 @@ extern virt_translate
 extern memcpy
 extern zero_page_addr
 extern vma_destroy
+extern page_list_get_active_count
+extern page_list_get_inactive_count
+extern page_list_move_to_inactive
+extern page_list_move_to_active
+extern virt_unmap
+extern phys_free_page
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -273,7 +279,152 @@ kernel_main:
     ; Stack Auto-Grow Test PASSED!
     mov rsi, msg_stack_test_passed
     call uart_print_str
+
+    ; 6. Run VMM Page Replacement Active/Inactive Page Lists Test
+    mov rsi, msg_rep_test_start
+    call uart_print_str
+
+    ; Step A: Verify initial active and inactive page counts are 0
+    call page_list_get_active_count
+    test rax, rax
+    jnz .rep_fail_init_count
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .rep_fail_init_count
+
+    ; Step B: Allocate a physical page for user mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .rep_fail_alloc
+    mov r14, rax                    ; R14 = physical page address
+
+    ; Step C: Create a VMA for the tracked virtual address space
+    ; start=0x30000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_USER (0x0B)
+    mov rdi, 0x30000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .rep_fail_vma
+    mov r15, rax                    ; R15 = VMA pointer
+
+    ; Step D: Map 0x30000000 to the physical page (triggers active list hook)
+    mov rdi, 0x30000000
+    mov rsi, r14
+    mov rdx, 0x07                   ; PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER
+    call virt_map
+    test rax, rax
+    jz .rep_fail_map
+
+    ; Step E: Verify page added to Active list
+    call page_list_get_active_count
+    cmp rax, 1
+    jne .rep_fail_active_count
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .rep_fail_inactive_count
+
+    ; Step F: Move page to Inactive list
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Step G: Verify page is now in Inactive list
+    call page_list_get_active_count
+    test rax, rax
+    jnz .rep_fail_active_count_inactive
+    call page_list_get_inactive_count
+    cmp rax, 1
+    jne .rep_fail_inactive_count_inactive
+
+    ; Step H: Move page back to Active list
+    mov rdi, r14
+    call page_list_move_to_active
+
+    ; Step I: Verify page is back in Active list
+    call page_list_get_active_count
+    cmp rax, 1
+    jne .rep_fail_active_count_back
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .rep_fail_inactive_count_back
+
+    ; Step J: Unmap page (triggers removal hook)
+    mov rdi, 0x30000000
+    call virt_unmap
+
+    ; Step K: Verify page is untracked (counts return to 0)
+    call page_list_get_active_count
+    test rax, rax
+    jnz .rep_fail_final_count
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .rep_fail_final_count
+
+    ; Step L: Clean up physical frame and VMA
+    mov rdi, r14
+    call phys_free_page
+    mov rdi, r15
+    call vma_destroy
+
+    ; Active/Inactive Lists Test PASSED!
+    mov rsi, msg_rep_test_passed
+    call uart_print_str
     jmp .idle
+
+.rep_fail_init_count:
+    mov rsi, msg_rep_fail_init_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_alloc:
+    mov rsi, msg_rep_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_vma:
+    mov rsi, msg_rep_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_map:
+    mov rsi, msg_rep_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_active_count:
+    mov rsi, msg_rep_fail_active_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_inactive_count:
+    mov rsi, msg_rep_fail_inactive_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_active_count_inactive:
+    mov rsi, msg_rep_fail_active_in_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_inactive_count_inactive:
+    mov rsi, msg_rep_fail_inactive_in_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_active_count_back:
+    mov rsi, msg_rep_fail_active_back_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_inactive_count_back:
+    mov rsi, msg_rep_fail_inactive_back_str
+    call uart_print_str
+    jmp .panic
+
+.rep_fail_final_count:
+    mov rsi, msg_rep_fail_final_str
+    call uart_print_str
+    jmp .panic
 
 .test_fail_vma:
     mov rsi, msg_fail_vma_str
@@ -438,3 +589,17 @@ msg_stack_test_passed: db "VMM Stack Auto-Grow Test PASSED!", 0x0D, 0x0A, 0
 msg_stack_fail_vma_str: db "Failure: Could not create Stack Auto-Grow VMA.", 0x0D, 0x0A, 0
 msg_stack_fail_val_str: db "Failure: Value read back from grown Stack address is incorrect.", 0x0D, 0x0A, 0
 msg_stack_fail_map_str: db "Failure: Stack address not mapped in page table after write.", 0x0D, 0x0A, 0
+
+msg_rep_test_start:            db "Running VMM Active/Inactive Page Lists Test...", 0x0D, 0x0A, 0
+msg_rep_test_passed:           db "VMM Active/Inactive Page Lists Test PASSED!", 0x0D, 0x0A, 0
+msg_rep_fail_init_str:         db "Failure: Initial active/inactive counts not 0.", 0x0D, 0x0A, 0
+msg_rep_fail_alloc_str:        db "Failure: Could not allocate physical page for replacement test.", 0x0D, 0x0A, 0
+msg_rep_fail_vma_str:          db "Failure: Could not create replacement test VMA.", 0x0D, 0x0A, 0
+msg_rep_fail_map_str:          db "Failure: Could not map replacement test page.", 0x0D, 0x0A, 0
+msg_rep_fail_active_str:       db "Failure: Page not tracked in active list after mapping.", 0x0D, 0x0A, 0
+msg_rep_fail_inactive_str:     db "Failure: Inactive count non-zero after mapping to active.", 0x0D, 0x0A, 0
+msg_rep_fail_active_in_str:    db "Failure: Active count non-zero after moving to inactive.", 0x0D, 0x0A, 0
+msg_rep_fail_inactive_in_str:  db "Failure: Inactive count not 1 after moving to inactive.", 0x0D, 0x0A, 0
+msg_rep_fail_active_back_str:  db "Failure: Active count not 1 after moving back to active.", 0x0D, 0x0A, 0
+msg_rep_fail_inactive_back_str:db "Failure: Inactive count non-zero after moving back to active.", 0x0D, 0x0A, 0
+msg_rep_fail_final_str:        db "Failure: Counts non-zero after unmapping page.", 0x0D, 0x0A, 0
