@@ -23,61 +23,61 @@ survive_wakeup_entry:
     cli                             ; disable interrupts immediately
     cld                             ; Clear direction flag for robust execution
 
-    ; 1. Save all registers to 0x9A00 (crash snapshot)
-    mov [0x9A00], rax
-    mov [0x9A08], rbx
-    mov [0x9A10], rcx
-    mov [0x9A18], rdx
-    mov [0x9A20], rsi
-    mov [0x9A28], rdi
-    mov [0x9A30], rbp
-    mov [0x9A38], rsp
-    mov [0x9A40], r8
-    mov [0x9A48], r9
-    mov [0x9A50], r10
-    mov [0x9A58], r11
-    mov [0x9A60], r12
-    mov [0x9A68], r13
-    mov [0x9A70], r14
-    mov [0x9A78], r15
+    ; 1. Save all registers to SURVIVE_PAGE + 0xA00 (crash snapshot)
+    mov [SURVIVE_PAGE + 0xA00], rax
+    mov [SURVIVE_PAGE + 0xA08], rbx
+    mov [SURVIVE_PAGE + 0xA10], rcx
+    mov [SURVIVE_PAGE + 0xA18], rdx
+    mov [SURVIVE_PAGE + 0xA20], rsi
+    mov [SURVIVE_PAGE + 0xA28], rdi
+    mov [SURVIVE_PAGE + 0xA30], rbp
+    mov [SURVIVE_PAGE + 0xA38], rsp
+    mov [SURVIVE_PAGE + 0xA40], r8
+    mov [SURVIVE_PAGE + 0xA48], r9
+    mov [SURVIVE_PAGE + 0xA50], r10
+    mov [SURVIVE_PAGE + 0xA58], r11
+    mov [SURVIVE_PAGE + 0xA60], r12
+    mov [SURVIVE_PAGE + 0xA68], r13
+    mov [SURVIVE_PAGE + 0xA70], r14
+    mov [SURVIVE_PAGE + 0xA78], r15
 
     ; Save control registers
     mov rax, cr0
-    mov [0x9A80], rax
+    mov [SURVIVE_PAGE + 0xA80], rax
     mov rax, cr2
-    mov [0x9A88], rax
+    mov [SURVIVE_PAGE + 0xA88], rax
     mov rax, cr3
-    mov [0x9A90], rax
+    mov [SURVIVE_PAGE + 0xA90], rax
     mov rax, cr4
-    mov [0x9A98], rax
+    mov [SURVIVE_PAGE + 0xA98], rax
 
     ; Save segment selectors
     xor rax, rax
     mov ax, cs
-    mov [0x9AA0], rax
+    mov [SURVIVE_PAGE + 0xAA0], rax
     mov ax, ds
-    mov [0x9AA8], rax
+    mov [SURVIVE_PAGE + 0xAA8], rax
     mov ax, es
-    mov [0x9AB0], rax
+    mov [SURVIVE_PAGE + 0xAB0], rax
     mov ax, fs
-    mov [0x9AB8], rax
+    mov [SURVIVE_PAGE + 0xAB8], rax
     mov ax, gs
-    mov [0x9AC0], rax
+    mov [SURVIVE_PAGE + 0xAC0], rax
     mov ax, ss
-    mov [0x9AC8], rax
+    mov [SURVIVE_PAGE + 0xAC8], rax
 
     ; Save RFLAGS
     pushfq
-    pop qword [0x9AD0]
+    pop qword [SURVIVE_PAGE + 0xAD0]
 
     ; Save RIP from 0x510
     mov rax, [0x510]
-    mov [0x9AD8], rax
+    mov [SURVIVE_PAGE + 0xAD8], rax
 
     ; 2. Set up a temporary safe stack for recovery execution
-    mov rsp, 0x9C000                ; STACK_LONG
+    mov rsp, STACK_LONG
 
-    ; 3. Log the panic string and RIP to SURVIVE_PAGE + 0x800 (0x9800)
+    ; 3. Log the panic string and RIP to SURVIVE_PAGE + 0x800 (SURVIVE_PAGE + 0x800)
     mov rcx, [0x508]                ; RCX = panic string pointer
     mov rdx, [0x510]                ; RDX = crash RIP
     call survive_log_panic
@@ -86,13 +86,13 @@ survive_wakeup_entry:
     lea rsi, [msg_panic_prefix]
     call uart_print_64
     
-    mov rsi, 0x9808                 ; address of copied panic message
+    mov rsi, SURVIVE_PAGE + 0x808   ; address of copied panic message
     call uart_print_64
     
     lea rsi, [msg_panic_at]
     call uart_print_64
     
-    mov rax, [0x9800]               ; crash RIP
+    mov rax, [SURVIVE_PAGE + 0x800] ; crash RIP
     call uart_print_hex64
     
     lea rsi, [msg_crlf]
