@@ -66,6 +66,7 @@ paging_setup:
     push ecx
     push edi
 
+    cld                             ; Clear direction flag for rep stosd
     ; -------------------------------------------------------------------------
     ; Step 1: Zero all page table memory
     ; 6 tables × 4KB = 24KB total
