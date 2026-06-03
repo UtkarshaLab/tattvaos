@@ -21,5 +21,6 @@
 %include "lib/mem/phys/map.asm"
 %include "lib/mem/phys/bitmap.asm"
 %include "lib/mem/phys/phys.asm"
+%include "lib/mem/heap/bump.asm"
 
 %endif ; LIB_MEM_MEM_ASM
