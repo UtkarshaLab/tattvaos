@@ -64,6 +64,133 @@ kernel_entry:
     mov rsi, .msg_crlf
     call .uart_print_str
 
+    ; 6. Print Framebuffer address
+    mov rsi, .msg_fb_addr
+    call .uart_print_str
+    mov rax, [rbp + 32]             ; BOOT_INFO_FB_ADDR offset 32
+    call .uart_print_hex64
+    mov rsi, .msg_crlf
+    call .uart_print_str
+
+    ; 7. Print Framebuffer resolution and BPP
+    mov rsi, .msg_fb_res
+    call .uart_print_str
+    xor eax, eax
+    mov eax, [rbp + 40]             ; BOOT_INFO_FB_WIDTH offset 40
+    call .uart_print_dec
+    mov al, 'x'
+    call .uart_putc
+    xor eax, eax
+    mov eax, [rbp + 44]             ; BOOT_INFO_FB_HEIGHT offset 44
+    call .uart_print_dec
+    mov al, 'x'
+    call .uart_putc
+    xor eax, eax
+    mov eax, [rbp + 52]             ; BOOT_INFO_FB_FORMAT (BPP) offset 52
+    call .uart_print_dec
+    mov rsi, .msg_crlf
+    call .uart_print_str
+
+    ; -------------------------------------------------------------------------
+    ; 8. Draw VBE Framebuffer test screen (Deep Purple + Centered Gold Box)
+    ; -------------------------------------------------------------------------
+    mov rdi, [rbp + 32]             ; RDI = framebuffer physical address
+    test rdi, rdi
+    jz .no_fb_draw
+
+    ; Calculate total pixels = width * height
+    xor rcx, rcx
+    mov ecx, [rbp + 40]             ; width
+    xor rdx, rdx
+    mov edx, [rbp + 44]             ; height
+    mov rax, rcx
+    imul rax, rdx                   ; RAX = width * height
+
+    ; Check BPP
+    mov esi, [rbp + 52]             ; BPP
+    cmp esi, 32
+    jne .check_24
+
+    ; 32bpp fill loop (Deep Purple: 0x002D004D)
+    mov rsi, rax                    ; pixel count
+    mov eax, 0x002D004D
+    rep stosd
+    jmp .draw_box
+
+.check_24:
+    cmp esi, 24
+    jne .no_fb_draw
+    ; 24bpp fill loop
+    mov rsi, rax
+.loop_24:
+    mov byte [rdi], 0x4D            ; Blue
+    mov byte [rdi + 1], 0x00        ; Green
+    mov byte [rdi + 2], 0x2D        ; Red
+    add rdi, 3
+    dec rsi
+    jnz .loop_24
+
+.draw_box:
+    ; Draw a 100x100 Gold Box in the center of the screen
+    ; Center X = width / 2, Center Y = height / 2
+    xor eax, eax
+    mov eax, [rbp + 40]             ; width
+    shr eax, 1                      ; width / 2
+    sub eax, 50                     ; Start X
+    
+    xor ebx, ebx
+    mov ebx, [rbp + 44]             ; height
+    shr ebx, 1                      ; height / 2
+    sub ebx, 50                     ; Start Y
+
+    mov ecx, 100                    ; row loop counter (height = 100)
+.box_row_loop:
+    push rcx
+    
+    ; Compute row pointer: base + (Start Y + row_index) * Pitch + Start X * BytesPerPixel
+    mov rdi, [rbp + 32]             ; FB base
+    xor rsi, rsi
+    mov esi, ebx                    ; Start Y
+    mov r8d, 100
+    sub r8d, ecx                    ; row_index
+    add esi, r8d                    ; Start Y + row_index
+    
+    xor r9, r9
+    mov r9d, [rbp + 48]             ; Pitch (bytes per row)
+    imul rsi, r9
+    add rdi, rsi
+    
+    ; Add Start X offset
+    xor rsi, rsi
+    mov esi, eax                    ; Start X
+    mov r10d, [rbp + 52]            ; BPP
+    shr r10d, 3                     ; BytesPerPixel
+    imul rsi, r10
+    add rdi, rsi                    ; RDI points to row pixel start
+    
+    ; Draw 100 pixels in this row
+    mov ecx, 100
+.box_pixel_loop:
+    cmp r10d, 4
+    jne .draw_pixel_24
+    mov dword [rdi], 0x00FFD700     ; Gold (32bpp)
+    add rdi, 4
+    jmp .next_pixel
+.draw_pixel_24:
+    mov byte [rdi], 0x00            ; Blue
+    mov byte [rdi + 1], 0xD7        ; Green
+    mov byte [rdi + 2], 0xFF        ; Red
+    add rdi, 3
+.next_pixel:
+    dec ecx
+    jnz .box_pixel_loop
+
+    pop rcx
+    dec ecx
+    jnz .box_row_loop
+
+.no_fb_draw:
+
     ; -------------------------------------------------------------------------
     ; Halt — kernel has no scheduler yet
     ; -------------------------------------------------------------------------
@@ -258,6 +385,8 @@ kernel_entry:
 .msg_e820_entries: db "E820 Entries:  ", 0
 .msg_cpu_features: db "CPU Features:  ", 0
 .msg_acpi_rsdp:     db "ACPI RSDP:     ", 0
+.msg_fb_addr:       db "FB Address:    ", 0
+.msg_fb_res:        db "FB Resolution: ", 0
 .msg_crlf:         db 0x0D, 0x0A, 0
 
 align 8
