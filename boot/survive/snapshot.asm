@@ -14,9 +14,6 @@
 
 [BITS 64]
 
-global survive_snapshot_save
-extern survive_checksum_save
-
 ; =============================================================================
 ; survive_snapshot_save — saves hardware state to SURVIVE_PAGE (0x9000)
 ; Input:  none
