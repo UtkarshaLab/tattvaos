@@ -77,6 +77,7 @@ common_exc_handler:
     pushad                          ; save general purpose registers
                                     ; pushes: EDI, ESI, EBP, ESP (original), EBX, EDX, ECX, EAX
                                     ; ESP is decremented by 32 bytes
+    cld                             ; Clear direction flag for robust print string operations
 
     ; -------------------------------------------------------------------------
     ; 1. Print Exception Header
