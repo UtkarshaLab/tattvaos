@@ -14,9 +14,6 @@
 
 [BITS 64]
 
-global survive_vector_install
-extern survive_wakeup_entry
-
 ; =============================================================================
 ; survive_vector_install — register panic entry point at 0x500
 ; Input:  none
