@@ -132,6 +132,7 @@ stage2_entry:
 %include "msr.asm"
 %include "vendor.asm"
 %include "cores.asm"
+%include "smp.asm"
 %include "cache.asm"
 %include "simd_enable.asm"
 %include "fs.asm"
@@ -161,6 +162,9 @@ stage2_entry:
 %include "survive/recover.asm"
 %include "survive/reset.asm"
 %include "survive/log/log.asm"
+
+; tpm submodule
+%include "tpm/tpm_measure.asm"
 
 %include "boot_drive.asm"
 
