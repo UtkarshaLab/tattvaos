@@ -133,6 +133,7 @@ e820_sort:
     push si
     push di
 
+    cld                             ; Clear direction flag for rep movsb
     mov cx, [E820_DEST + E820_COUNT_OFF]
     cmp cx, 2
     jl .sort_done                   ; 0 or 1 entries already sorted
@@ -248,6 +249,7 @@ e820_merge:
     push si
     push di
 
+    cld                             ; Clear direction flag for rep movsb
     mov cx, [E820_DEST + E820_COUNT_OFF]
     cmp cx, 2
     jl .merge_done
