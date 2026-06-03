@@ -190,6 +190,7 @@ longmode_64:
     mov rsi, msg_kernel_ok
     call uart_print_64
 
+    mov rdi, BOOT_INFO_ADDR         ; Pass BootInfo pointer in RDI (System V ABI)
     jmp KERNEL_LOAD                 ; jump to kernel entry point
 
     ; never reaches here
