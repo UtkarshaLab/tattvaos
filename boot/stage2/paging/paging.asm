@@ -159,7 +159,15 @@ paging_setup:
 paging_fill_pd:
     push eax
     push ecx
+    push edx
     push edi
+
+    ; check if NX is supported
+    xor edx, edx                    ; edx will store our NX mask (either PTE_NX_BIT or 0)
+    call paging_nx_supported
+    jc .no_nx
+    mov edx, PTE_NX_BIT             ; NX is supported, load mask
+.no_nx:
 
     mov ecx, 512                    ; 512 entries per PD
 
@@ -168,7 +176,15 @@ paging_fill_pd:
     mov eax, ebx
     or eax, PAGE_KERNEL | PAGE_HUGE ; present + rw + 2MB huge
     mov [edi], eax                  ; low dword of entry
-    mov dword [edi + 4], 0          ; high dword (no NX, no high base bits)
+
+    ; set NX in high dword if ebx != 0 (non-zero physical address)
+    test ebx, ebx
+    jz .exec_page
+    mov [edi + 4], edx              ; high dword gets edx (PTE_NX_BIT or 0)
+    jmp .next_entry
+.exec_page:
+    mov dword [edi + 4], 0          ; first 2MB page is executable (no NX)
+.next_entry:
 
     add ebx, 0x200000               ; advance by 2MB
     add edi, 8                      ; next entry (8 bytes)
@@ -176,6 +192,7 @@ paging_fill_pd:
     jnz .fill_loop
 
     pop edi
+    pop edx
     pop ecx
     pop eax
     ret
