@@ -17,6 +17,8 @@
 %include "file.asm"
 %include "memory.asm"
 %include "handoff.asm"
+%include "tpm/uefi_tpm.asm"
+%include "nvram.asm"
 
 [BITS 64]
 
@@ -54,6 +56,27 @@ efi_main:
     test rax, rax
     jz .load_failed                 ; zero read size = failed to load kernel
 
+    ; TPM measurement of loaded kernel
+    mov rbx, rax                    ; save kernel size
+    mov rcx, [uefi_system_table]
+    call uefi_tpm_init
+    test rax, rax
+    jnz .skip_tpm_measure
+
+    mov rcx, [uefi_system_table]
+    mov rdx, 0x100000               ; kernel data address
+    mov r8, rbx                     ; kernel size
+    mov r9d, 4                      ; PCR 4 (OS loader/kernel)
+    call uefi_tpm_measure
+
+.skip_tpm_measure:
+    ; Load initrd.img from Simple File System to 0x2000000 (32MB)
+    mov rcx, [uefi_system_table]
+    lea rdx, [rel msg_initrd_file]
+    mov r8, 0x2000000               ; 32MB mark
+    call uefi_file_load
+    mov [rel uefi_initrd_size], rax ; save initrd size (0 if not found)
+
     ; 4. Query GetMemoryMap to obtain size and MapKey
     mov qword [uefi_map_size], 16384 ; allocate 16KB for memory map descriptors
     mov rcx, [uefi_system_table]
@@ -62,6 +85,12 @@ efi_main:
     call uefi_get_memory_map
     test rax, rax
     jnz .mem_map_failed             ; if non-zero status, query failed
+
+    ; Write early boot log to NVRAM (motherboard variable space)
+    mov rcx, [uefi_system_table]
+    lea rdx, [rel msg_uefi_banner]
+    mov r8, 48                      ; size of message
+    call uefi_write_boot_log
 
     ; 5. Handoff to kernel (Exit Boot Services + Jump)
     mov r8, rdx                     ; MapKey from uefi_get_memory_map return (in RDX)
@@ -121,6 +150,12 @@ msg_uefi_banner:
 
 msg_kernel_file:
     dw 'k', 'e', 'r', 'n', 'e', 'l', '.', 'u', 'l', 'f', 0
+
+msg_initrd_file:
+    dw 'i', 'n', 'i', 't', 'r', 'd', '.', 'i', 'm', 'g', 0
+
+align 8
+uefi_initrd_size:   dq 0
 
 msg_load_failed:
     dw 'E', 'R', 'R', 'O', 'R', ':', ' ', 'F', 'a', 'i', 'l', 'e', 'd', ' ', 't', 'o', ' ', 'l', 'o', 'a', 'd', ' ', 'k', 'e', 'r', 'n', 'e', 'l', '.', 'u', 'l', 'f', 0x0D, 0x0A, 0
