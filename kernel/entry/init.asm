@@ -17,11 +17,20 @@ kernel_init:
     ; 1. Save BootInfo pointer in a global variable
     mov [boot_info_ptr], rdi
 
-    ; 2. Print initial boot message
+    ; 2. Initialize Kernel GDT & TSS (with IST stack overflow protection)
+    call gdt_init
+
+    ; 3. Print initial boot message
     mov rsi, msg_kernel_boot
     call uart_print_str
 
-    ; 3. Print BootInfo physical address
+    ; 3b. Print GDT/TSS init status
+    mov rsi, msg_init_gdt
+    call uart_print_str
+    mov rsi, msg_ok
+    call uart_print_str
+
+    ; 4. Print BootInfo physical address
     mov rsi, msg_boot_info_loc
     call uart_print_str
     mov rax, rdi
@@ -29,7 +38,7 @@ kernel_init:
     mov rsi, msg_crlf
     call uart_print_str
 
-    ; 4. Verify GS Base initialization at runtime
+    ; 5. Verify GS Base initialization at runtime
     mov ecx, 0xC0000101             ; MSR_GS_BASE
     rdmsr                           ; EDX:EAX = GS Base
     shl rdx, 32
@@ -109,6 +118,7 @@ global boot_info_ptr
 boot_info_ptr:      dq 0
 
 msg_kernel_boot:     db "Tattva Kernel Booting...", 0x0D, 0x0A, 0
+msg_init_gdt:        db "Initializing Kernel GDT/TSS... ", 0
 msg_boot_info_loc:   db "BootInfo Pointer: ", 0
 msg_gs_base_loc:     db "GS Base register: ", 0
 msg_init_idt:        db "Initializing Exception Handlers (IDT)... ", 0
