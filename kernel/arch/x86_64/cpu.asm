@@ -64,6 +64,36 @@ cpu_verify_features:
     pop rax
     ret
 
+; -----------------------------------------------------------------------------
+; cpu_get_local — get the base address of the current CPU-local structure
+; Input:  none
+; Output: RAX = pointer to CPU-local structure
+; Clobbers: none (preserves all other registers)
+; -----------------------------------------------------------------------------
+cpu_get_local:
+    mov rax, [gs:0]                 ; offset 0 is .self pointer
+    ret
+
+; -----------------------------------------------------------------------------
+; cpu_get_id — get the CPU ID of the running processor
+; Input:  none
+; Output: EAX = CPU ID
+; Clobbers: none
+; -----------------------------------------------------------------------------
+cpu_get_id:
+    mov eax, [gs:8]                 ; offset 8 is .cpu_id
+    ret
+
+; -----------------------------------------------------------------------------
+; cpu_get_stack_top — get the kernel stack top of the running processor
+; Input:  none
+; Output: RAX = stack top address
+; Clobbers: none
+; -----------------------------------------------------------------------------
+cpu_get_stack_top:
+    mov rax, [gs:16]                ; offset 16 is .stack_top
+    ret
+
 .err_sse3:
     mov rsi, .msg_err_sse3
     jmp .panic
