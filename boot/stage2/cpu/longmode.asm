@@ -254,9 +254,6 @@ longmode_64:
     cmp rax, r8
     jne .ulf_bad_checksum
 
-    ; 4. Retrieve dynamic entry point from header (offset 8)
-    mov rax, [KERNEL_LOAD + 8]      ; rax = entry_point
-
     ; 5. Print success and dynamic jump
     mov rsi, msg_kernel_ok
     call uart_print_64
@@ -267,6 +264,9 @@ longmode_64:
     ; Save the pristine state snapshot and register the panic vector
     call survive_snapshot_save
     call survive_vector_install
+
+    ; 4. Retrieve dynamic entry point from header (offset 8)
+    mov rax, [KERNEL_LOAD + 8]      ; rax = entry_point
 
     mov rdi, BOOT_INFO_ADDR         ; Pass BootInfo pointer in RDI (System V ABI)
     jmp rax                         ; jump dynamically!
