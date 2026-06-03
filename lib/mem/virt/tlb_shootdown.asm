@@ -190,4 +190,8 @@ tlb_sd_mode:    db 0                ; 0 = page, 1 = full
 align 4
 tlb_sd_ack:     dd 0                ; atomic ACK counter from remote cores
 
+align 4
+global smp_active_cores
+smp_active_cores: dd 1              ; default to 1 core (BSP)
+
 %endif ; LIB_MEM_VIRT_TLB_SHOOTDOWN_ASM
