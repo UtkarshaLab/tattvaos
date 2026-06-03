@@ -89,12 +89,32 @@ stage2_main:
     mov si, msg_mem
     call uart_print
 
+    mov al, '1'
+    call uart_putc
     call e820_detect                ; fills table at E820_DEST
+
+    mov al, '2'
+    call uart_putc
     call e820_parse                 ; find usable regions
+
+    mov al, '3'
+    call uart_putc
     call e820_sort                  ; sort by base address
+
+    mov al, '4'
+    call uart_putc
     call e820_merge                 ; merge overlapping entries
+
+    mov al, '5'
+    call uart_putc
     call hide_survive_page          ; hide/reserve 0x9000-0xA000 from E820 map
+
+    mov al, '6'
+    call uart_putc
     call e820_parse                 ; recalculate total usable memory after hiding
+
+    mov al, '7'
+    call uart_putc
 
     ; print total usable RAM
     mov si, msg_ram
