@@ -37,6 +37,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable_unmap.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable_cache.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable_lock.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/pgtable_split.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/tlb.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/tlb_shootdown.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/thp.asm
