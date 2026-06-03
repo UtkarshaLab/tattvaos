@@ -250,30 +250,7 @@ boot/
 │   │                                 halt if wrong before jumping
 │   │
 │   ├── memory/                     ← Physical memory detection
-│   │   ├── e820.asm                ← BIOS int 15h E820 memory map
-│   │   │                             call until carry flag set
-│   │   │                             store all entries at E820_DEST
-│   │   │                             max 128 entries typical
-│   │   │
-│   │   ├── e820_parse.asm          ← parse E820 entries
-│   │   │                             find type 1 (usable) regions only
-│   │   │                             exclude below 1MB (BIOS area)
-│   │   │                             exclude SURVIVE_PAGE region
-│   │   │
-│   │   ├── e820_sort.asm           ← sort E820 entries by base address
-│   │   │                             real hardware returns out of order
-│   │   │                             QEMU returns sorted, real HW may not
-│   │   │                             simple insertion sort is fine here
-│   │   │
-│   │   ├── e820_merge.asm          ← merge overlapping E820 entries
-│   │   │                             real hardware has overlapping regions
-│   │   │                             reserved always beats usable
-│   │   │                             run after e820_sort
-│   │   │                             QEMU clean map, real HW messy
-│   │   │
-│   │   ├── e820_print.asm          ← debug print memory map via UART
-│   │   │                             print all entries type + size
-│   │   │                             remove in final build
+│   │   ├── e820.asm                ← full e820 implementation
 │   │   │
 │   │   └── mtrr.asm                ← MTRR detection and setup
 │   │                                 mark video memory write-combining
