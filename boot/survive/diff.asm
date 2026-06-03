@@ -13,8 +13,6 @@
 
 [BITS 64]
 
-global survive_diff
-
 ; =============================================================================
 ; survive_diff — compare registers and log differences to COM1
 ; Input:  none
@@ -104,72 +102,12 @@ survive_diff:
     ret
 
 ; =============================================================================
-; 64-bit UART helper functions
-; =============================================================================
-uart_putc_64:
-    mov dx, 0x3FD                   ; Line Status Register
-.wait:
-    in al, dx
-    test al, 0x20
-    jz .wait
-    mov dx, 0x3F8                   ; Transmit Holding Register
-    mov al, cl
-    out dx, al
-    ret
-
-uart_print_64:
-    push rsi
-    push rax
-    push rdx
-.loop:
-    lodsb                           ; AL = *RSI++
-    test al, al
-    jz .done
-    mov cl, al
-    call uart_putc_64
-    jmp .loop
-.done:
-    pop rdx
-    pop rax
-    pop rsi
-    ret
-
-uart_print_hex64:
-    push rbx
-    push rcx
-    push rdx
-    mov rbx, rax
-    mov rcx, 16                     ; 16 hex digits
-.loop:
-    rol rbx, 4
-    mov dl, bl
-    and dl, 0x0F
-    cmp dl, 10
-    jae .letter
-    add dl, '0'
-    jmp .print
-.letter:
-    add dl, 'A' - 10
-.print:
-    push rcx
-    mov cl, dl
-    call uart_putc_64
-    pop rcx
-    dec rcx
-    jnz .loop
-    pop rdx
-    pop rcx
-    pop rbx
-    ret
-
-; =============================================================================
 ; Data strings and register names
 ; =============================================================================
 msg_diff_header:    db 0x0D, 0x0A, "--- Register Diff (Pristine vs Crash) ---", 0x0D, 0x0A, 0
 msg_diff_middle:    db " diff: pristine=0x", 0
 msg_diff_crash:     db " crash=0x", 0
 msg_diff_footer:    db "-----------------------------------------", 0x0D, 0x0A, 0
-msg_crlf:           db 0x0D, 0x0A, 0
 
 align 4
 reg_names:
