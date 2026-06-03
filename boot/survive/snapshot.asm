@@ -21,70 +21,70 @@
 ; =============================================================================
 survive_snapshot_save:
     ; Temporarily save RAX to the target slot in SURVIVE_PAGE so we can use RAX
-    mov [0x9000], rax
+    mov [SURVIVE_PAGE], rax
     
     ; Save general purpose registers
-    mov [0x9008], rbx
-    mov [0x9010], rcx
-    mov [0x9018], rdx
-    mov [0x9020], rsi
-    mov [0x9028], rdi
-    mov [0x9030], rbp
+    mov [SURVIVE_PAGE + 0x08], rbx
+    mov [SURVIVE_PAGE + 0x10], rcx
+    mov [SURVIVE_PAGE + 0x18], rdx
+    mov [SURVIVE_PAGE + 0x20], rsi
+    mov [SURVIVE_PAGE + 0x28], rdi
+    mov [SURVIVE_PAGE + 0x30], rbp
     
     ; RSP before the call (which is RSP + 8)
     lea rax, [rsp + 8]
-    mov [0x9038], rax
+    mov [SURVIVE_PAGE + 0x38], rax
     
-    mov [0x9040], r8
-    mov [0x9048], r9
-    mov [0x9050], r10
-    mov [0x9058], r11
-    mov [0x9060], r12
-    mov [0x9068], r13
-    mov [0x9070], r14
-    mov [0x9078], r15
+    mov [SURVIVE_PAGE + 0x40], r8
+    mov [SURVIVE_PAGE + 0x48], r9
+    mov [SURVIVE_PAGE + 0x50], r10
+    mov [SURVIVE_PAGE + 0x58], r11
+    mov [SURVIVE_PAGE + 0x60], r12
+    mov [SURVIVE_PAGE + 0x68], r13
+    mov [SURVIVE_PAGE + 0x70], r14
+    mov [SURVIVE_PAGE + 0x78], r15
 
     ; Save Control Registers
     mov rax, cr0
-    mov [0x9080], rax
+    mov [SURVIVE_PAGE + 0x80], rax
     mov rax, cr2
-    mov [0x9088], rax
+    mov [SURVIVE_PAGE + 0x88], rax
     mov rax, cr3
-    mov [0x9090], rax
+    mov [SURVIVE_PAGE + 0x90], rax
     mov rax, cr4
-    mov [0x9098], rax
+    mov [SURVIVE_PAGE + 0x98], rax
 
     ; Save Segment Selectors (zero-extended to 64-bit for alignment)
     xor rax, rax
     mov ax, cs
-    mov [0x90A0], rax
+    mov [SURVIVE_PAGE + 0xA0], rax
     mov ax, ds
-    mov [0x90A8], rax
+    mov [SURVIVE_PAGE + 0xA8], rax
     mov ax, es
-    mov [0x90B0], rax
+    mov [SURVIVE_PAGE + 0xB0], rax
     mov ax, fs
-    mov [0x90B8], rax
+    mov [SURVIVE_PAGE + 0xB8], rax
     mov ax, gs
-    mov [0x90C0], rax
+    mov [SURVIVE_PAGE + 0xC0], rax
     mov ax, ss
-    mov [0x90C8], rax
+    mov [SURVIVE_PAGE + 0xC8], rax
 
     ; Save RFLAGS
     pushfq
     pop rax
-    mov [0x90D0], rax
+    mov [SURVIVE_PAGE + 0xD0], rax
 
     ; Save RIP (the return address of this call)
     mov rax, [rsp]
-    mov [0x90D8], rax
+    mov [SURVIVE_PAGE + 0xD8], rax
 
     ; Save GDTR and IDTR (16 bytes space each, limit + base)
-    sgdt [0x90E0]
-    sidt [0x90F0]
+    sgdt [SURVIVE_PAGE + 0xE0]
+    sidt [SURVIVE_PAGE + 0xF0]
 
     ; Copy stack contents:
     ; Source is original RSP (rsp + 32 inside this stack frame after pushes)
-    ; Destination is 0x9000 + 256 = 0x9100
+    ; Destination is SURVIVE_PAGE + 256 = SURVIVE_PAGE + 0x100
     ; Size is 1536 bytes (192 quadwords)
     push rsi
     push rdi
@@ -92,7 +92,7 @@ survive_snapshot_save:
     
     cld                             ; Clear direction flag for forward copy
     lea rsi, [rsp + 32]             ; original stack pointer
-    mov rdi, 0x9100
+    mov rdi, SURVIVE_PAGE + 0x100
     mov rcx, 192                    ; 192 * 8 = 1536 bytes
     rep movsq
     
@@ -100,9 +100,9 @@ survive_snapshot_save:
     pop rdi
     pop rsi
 
-    ; Write magic signature 'TATTVSNP' (8 bytes) at SURVIVE_PAGE + 0xFF0 = 0x9FF0
+    ; Write magic signature 'TATTVSNP' (8 bytes) at SURVIVE_PAGE + 0xFF0
     mov rax, 0x504E535654544154     ; "TATTVSNP" in little-endian ASCII
-    mov [0x9FF0], rax
+    mov [SURVIVE_PAGE + 0xFF0], rax
 
     ; Calculate and save CRC32 checksum
     push rax
