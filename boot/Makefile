@@ -33,7 +33,8 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/virt.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable_walk.asm \
-                          $(KERNEL_DIR)/../lib/mem/virt/pgtable_map.asm
+                          $(KERNEL_DIR)/../lib/mem/virt/pgtable_map.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/pgtable_unmap.asm
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
 		-i $(KERNEL_DIR)/ -i $(KERNEL_DIR)/../ \
 		-o $(KERNEL_DIR)/kernel.bin
