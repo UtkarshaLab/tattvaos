@@ -218,6 +218,7 @@ relocated_entry:
 ; Note: debug only, remove in final build
 ; =============================================================================
 print_str:
+    cld                             ; Clear direction flag for lodsb
     mov ah, 0x0E                    ; BIOS teletype output
     mov bh, 0                       ; page 0
     mov bl, 0x07                    ; light grey on black
