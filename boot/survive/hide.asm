@@ -18,8 +18,6 @@
 
 [BITS 16]
 
-global hide_survive_page
-
 ; =============================================================================
 ; hide_survive_page — split the E820 entry containing 0x9000 to hide it
 ; Input:  none
