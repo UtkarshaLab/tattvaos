@@ -233,6 +233,9 @@ stage2_main:
     jmp .halt
 
 .kernel_done:
+    ; Query and set VBE linear framebuffer mode
+    call vbe_init
+
     ; Initialize BootInfo structure at 0x7000
     call boot_info_init
 
@@ -355,6 +358,31 @@ boot_info_init:
     call acpi_find_rsdp
     mov [BOOT_INFO_ACPI_RSDP], eax
     mov dword [BOOT_INFO_ACPI_RSDP + 4], 0
+
+    ; 6. framebuffer_addr -> best_fb_addr
+    mov eax, [best_fb_addr]
+    mov [BOOT_INFO_FB_ADDR], eax
+    mov dword [BOOT_INFO_FB_ADDR + 4], 0
+
+    ; 7. framebuffer_width -> best_width
+    xor eax, eax
+    mov ax, [best_width]
+    mov [BOOT_INFO_FB_WIDTH], eax
+
+    ; 8. framebuffer_height -> best_height
+    xor eax, eax
+    mov ax, [best_height]
+    mov [BOOT_INFO_FB_HEIGHT], eax
+
+    ; 9. framebuffer_pitch -> best_pitch
+    xor eax, eax
+    mov ax, [best_pitch]
+    mov [BOOT_INFO_FB_PITCH], eax
+
+    ; 10. framebuffer_format -> best_bpp
+    xor eax, eax
+    mov al, [best_bpp]
+    mov [BOOT_INFO_FB_FORMAT], eax
 
     pop es
     pop edi
