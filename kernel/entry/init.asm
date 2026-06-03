@@ -50,6 +50,11 @@ kernel_init:
     mov rsi, msg_crlf
     call uart_print_str
 
+    ; 5b. Verify CPU hardware features (SSE3, AVX, AVX2, FMA)
+    mov rsi, msg_init_cpu
+    call uart_print_str
+    call cpu_verify_features
+
     ; 4b. Initialize Exception Handlers (IDT)
     mov rsi, msg_init_idt
     call uart_print_str
@@ -121,6 +126,7 @@ msg_kernel_boot:     db "Tattva Kernel Booting...", 0x0D, 0x0A, 0
 msg_init_gdt:        db "Initializing Kernel GDT/TSS... ", 0
 msg_boot_info_loc:   db "BootInfo Pointer: ", 0
 msg_gs_base_loc:     db "GS Base register: ", 0
+msg_init_cpu:        db "Verifying CPU hardware features... ", 0
 msg_init_idt:        db "Initializing Exception Handlers (IDT)... ", 0
 msg_init_mm:         db "Initializing MM (Physical Allocator)... ", 0
 msg_init_sched:      db "Initializing Scheduler... ", 0
