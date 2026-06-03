@@ -15,7 +15,8 @@
 
 ; =============================================================================
 ; config_parse — Parse tattva.cfg content loaded in memory
-; Input:  RSI = pointer to text buffer
+; Input:  FS = segment of text buffer (e.g. 0x3000)
+;         SI = offset within segment (e.g. 0)
 ;         CX = text buffer length
 ; =============================================================================
 config_parse:
@@ -23,11 +24,12 @@ config_parse:
     push ds
     push es
 
+    ; DS = ES = 0 for accessing key strings and output variables
     xor ax, ax
     mov ds, ax
     mov es, ax
 
-    mov [cfg_buffer_ptr], si
+    mov [cfg_buffer_off], si
     mov [cfg_buffer_len], cx
 
     xor di, di                      ; DI = current offset in buffer
@@ -36,10 +38,10 @@ config_parse:
     cmp di, cx
     jae .done
 
-    ; Skip leading whitespace/newlines
-    mov si, [cfg_buffer_ptr]
+    ; Read current character from FS:buffer_off+DI
+    mov si, [cfg_buffer_off]
     add si, di
-    mov al, [si]
+    mov al, [fs:si]
     cmp al, 0x0A                    ; newline
     je .next_char
     cmp al, 0x0D                    ; carriage return
@@ -50,60 +52,45 @@ config_parse:
     je .skip_comment
 
     ; Check if line matches "kernel="
-    lea dx, [rel key_kernel]
+    lea dx, [key_kernel]
     call config_match_key
     jc .not_kernel
     add di, 7                       ; len("kernel=")
     
-    mov si, [cfg_buffer_ptr]
-    add si, di
-    lea bx, [rel config_kernel_name]
-    push di
-    mov di, bx
-    call config_copy_value
-    pop di
+    lea bx, [config_kernel_name]
+    call config_extract_value
     add di, ax                      ; advance offset
     jmp .line_loop
 
 .not_kernel:
     ; Check if line matches "fallback="
-    lea dx, [rel key_fallback]
+    lea dx, [key_fallback]
     call config_match_key
     jc .not_fallback
     add di, 9                       ; len("fallback=")
     
-    mov si, [cfg_buffer_ptr]
-    add si, di
-    lea bx, [rel config_fallback_name]
-    push di
-    mov di, bx
-    call config_copy_value
-    pop di
+    lea bx, [config_fallback_name]
+    call config_extract_value
     add di, ax
     jmp .line_loop
 
 .not_fallback:
     ; Check if line matches "initrd="
-    lea dx, [rel key_initrd]
+    lea dx, [key_initrd]
     call config_match_key
     jc .next_char
     add di, 7                       ; len("initrd=")
     
-    mov si, [cfg_buffer_ptr]
-    add si, di
-    lea bx, [rel config_initrd_name]
-    push di
-    mov di, bx
-    call config_copy_value
-    pop di
+    lea bx, [config_initrd_name]
+    call config_extract_value
     add di, ax
     jmp .line_loop
 
 .skip_comment:
     ; Skip to next newline
-    mov si, [cfg_buffer_ptr]
+    mov si, [cfg_buffer_off]
     add si, di
-    mov al, [si]
+    mov al, [fs:si]
     cmp al, 0x0A
     je .next_char
     cmp al, 0x0D
@@ -126,21 +113,23 @@ config_parse:
 
 ; =============================================================================
 ; config_match_key — Compare buffer at current offset with key in DX
-; Input:  DI = current offset
-;         DX = pointer to key string (null-terminated)
+; Input:  DI = current offset in buffer
+;         DX = pointer to key string (null-terminated, in DS=0 space)
 ; Output: CF clear if match, set if mismatch
+; Uses FS:buffer_off+DI to read buffer data
 ; =============================================================================
 config_match_key:
     push si
+    push bx
     push di
-    mov si, dx
-    mov bx, [cfg_buffer_ptr]
-    add bx, di                      ; BX = current buffer position
+    mov si, dx                      ; SI = key pointer (DS=0)
+    mov bx, [cfg_buffer_off]
+    add bx, di                      ; BX = buffer offset for FS segment
 .cmp_loop:
-    mov al, [si]
+    mov al, [si]                    ; read key char (from DS=0)
     test al, al                     ; end of key?
     jz .match
-    mov ah, [bx]
+    mov ah, [fs:bx]                 ; read buffer char (from FS segment)
     cmp al, ah
     jne .mismatch
     inc si
@@ -153,27 +142,29 @@ config_match_key:
     clc
 .exit:
     pop di
+    pop bx
     pop si
     ret
 
 ; =============================================================================
-; config_copy_value — Copy value to destination buffer
-; Input:  SI = pointer to source value
-;         DI = destination buffer
+; config_extract_value — Copy value from FS buffer to destination in DS=0
+; Input:  DI = current offset in buffer (after key=)
+;         BX = destination buffer pointer (DS=0 space)
 ; Output: AX = count of bytes copied
+; Uses FS:buffer_off+DI as source
 ; =============================================================================
-config_copy_value:
+config_extract_value:
     push si
     push di
-    push es
     push bx
+    push cx
 
-    xor ax, ax
-    mov es, ax
-    xor bx, bx                      ; BX = count
+    mov si, [cfg_buffer_off]
+    add si, di                      ; SI = source offset in FS segment
+    xor cx, cx                      ; CX = count
 
 .copy_loop:
-    mov al, [si]
+    mov al, [fs:si]                 ; read from buffer (FS segment)
     cmp al, 0x0A
     je .copy_done
     cmp al, 0x0D
@@ -185,24 +176,24 @@ config_copy_value:
     test al, al
     jz .copy_done
 
-    mov [es:di], al
+    mov [bx], al                    ; write to destination (DS=0)
     inc si
-    inc di
     inc bx
+    inc cx
     jmp .copy_loop
 
 .copy_done:
-    mov byte [es:di], 0             ; null terminator
-    mov ax, bx                      ; return count
+    mov byte [bx], 0                ; null terminator
+    mov ax, cx                      ; return count
 
+    pop cx
     pop bx
-    pop es
     pop di
     pop si
     ret
 
 ; Variables
-cfg_buffer_ptr:     dw 0
+cfg_buffer_off:     dw 0
 cfg_buffer_len:     dw 0
 
 key_kernel:         db "kernel=", 0
