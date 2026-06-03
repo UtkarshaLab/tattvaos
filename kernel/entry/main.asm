@@ -21,6 +21,7 @@ extern virt_map
 extern virt_translate
 extern memcpy
 extern zero_page_addr
+extern vma_destroy
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -227,6 +228,51 @@ kernel_main:
     ; ZFOD Test PASSED!
     mov rsi, msg_zfod_test_passed
     call uart_print_str
+
+    ; 5. Run VMM Page Fault Stack Auto-Grow Test
+    mov rsi, msg_stack_test_start
+    call uart_print_str
+
+    ; Step A: Determine page boundary immediately below current RSP
+    mov rdi, rsp
+    and rdi, -4096                  ; align down to 4KB boundary
+    sub rdi, 4096                   ; page address immediately below RSP
+    mov r14, rdi                    ; R14 = stack grow test virtual address
+
+    ; Step B: Create a VMA for this stack grow region
+    ; start=R14, size=4096, flags=VMA_READ|VMA_WRITE|VMA_STACK (0x43)
+    mov rsi, 4096
+    mov rdx, 0x43                   ; VMA_READ | VMA_WRITE | VMA_STACK
+    call vma_create
+    test rax, rax
+    jz .stack_fail_vma
+    mov r13, rax                    ; R13 = VMA pointer
+
+    ; Step C: Trigger a write to the stack page
+    ; We write at R14 + 4088 (8 bytes below the top of the new page, i.e. 8 bytes below original page boundary)
+    mov r15, r14
+    add r15, 4088
+    mov qword [r15], 0x9876543210FEDCBA
+
+    ; Step D: Verify the write succeeded
+    mov rax, [r15]
+    mov rbx, 0x9876543210FEDCBA
+    cmp rax, rbx
+    jne .stack_fail_val
+
+    ; Step E: Verify the page is now mapped in the page table
+    mov rdi, r15
+    call virt_translate
+    test rax, rax
+    jz .stack_fail_map
+
+    ; Step F: Clean up the stack VMA
+    mov rdi, r13
+    call vma_destroy
+
+    ; Stack Auto-Grow Test PASSED!
+    mov rsi, msg_stack_test_passed
+    call uart_print_str
     jmp .idle
 
 .test_fail_vma:
@@ -309,6 +355,21 @@ kernel_main:
     call uart_print_str
     jmp .panic
 
+.stack_fail_vma:
+    mov rsi, msg_stack_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.stack_fail_val:
+    mov rsi, msg_stack_fail_val_str
+    call uart_print_str
+    jmp .panic
+
+.stack_fail_map:
+    mov rsi, msg_stack_fail_map_str
+    call uart_print_str
+    jmp .panic
+
 .panic:
     mov rsi, msg_test_failed
     call uart_print_str
@@ -370,3 +431,10 @@ msg_zfod_fail_iso_str:   db "Failure: Shared zero page was modified by COW write
 msg_zfod_fail_same_str:  db "Failure: Page 1 still maps to shared zero page after write.", 0x0D, 0x0A, 0
 msg_zfod_fail_p2val_str: db "Failure: Value read back from ZFOD Page 2 after direct write is incorrect.", 0x0D, 0x0A, 0
 msg_zfod_fail_p2same_str: db "Failure: Page 2 maps to shared zero page after direct write.", 0x0D, 0x0A, 0
+
+msg_stack_test_start:  db "Running VMM Stack Auto-Grow Exception Test...", 0x0D, 0x0A, 0
+msg_stack_test_passed: db "VMM Stack Auto-Grow Test PASSED!", 0x0D, 0x0A, 0
+
+msg_stack_fail_vma_str: db "Failure: Could not create Stack Auto-Grow VMA.", 0x0D, 0x0A, 0
+msg_stack_fail_val_str: db "Failure: Value read back from grown Stack address is incorrect.", 0x0D, 0x0A, 0
+msg_stack_fail_map_str: db "Failure: Stack address not mapped in page table after write.", 0x0D, 0x0A, 0
