@@ -59,9 +59,9 @@ survive_diff:
     mov r9, 208                     ; offset 0xD0
 
 .compare:
-    ; Compare [0x9000 + R9] (pristine) vs [0x9A00 + R9] (crash)
-    mov rax, [0x9000 + r9]
-    mov r10, [0x9A00 + r9]
+    ; Compare [SURVIVE_PAGE + R9] (pristine) vs [(SURVIVE_PAGE + 0xA00) + R9] (crash)
+    mov rax, [SURVIVE_PAGE + r9]
+    mov r10, [(SURVIVE_PAGE + 0xA00) + r9]
     cmp rax, r10
     je .next                        ; if equal, skip
 
