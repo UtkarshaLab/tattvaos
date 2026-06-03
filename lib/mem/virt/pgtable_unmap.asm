@@ -164,6 +164,20 @@ virt_unmap:
     test rcx, PAGE_PRESENT
     jz .done                        ; already unmapped
 
+    ; Hook: Remove page from active/inactive list if it was a user page (PAGE_USER set)
+    test rcx, PAGE_USER
+    jz .skip_untrack
+
+    push rax
+    push rcx
+    mov rdi, rcx
+    and rdi, 0xFFFFFFFFFFFFF000     ; RDI = physical address of page
+    call page_list_remove
+    pop rcx
+    pop rax
+
+.skip_untrack:
+
     ; =========================================================================
     ; Step 1: Clear the leaf PTE
     ; =========================================================================
