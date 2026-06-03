@@ -242,13 +242,12 @@ fs_load_kernel:
     jb .load_cfg_loop
 
     ; Parse tattva.cfg
-    mov si, 0                       ; offset 0 of segment 0x3000
-    mov cx, 512                      ; assume max 512 bytes for config
-    push ds
+    ; Parser uses FS for buffer segment, DS=0 for key strings
     mov ax, 0x3000
-    mov ds, ax
+    mov fs, ax
+    xor si, si                       ; offset 0 within FS segment
+    mov cx, 512                      ; assume max 512 bytes for config
     call config_parse
-    pop ds
 
 .no_config_found:
     ; 3. Find KERNEL.ULF (or config_kernel_name)
