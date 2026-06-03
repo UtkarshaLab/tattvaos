@@ -318,12 +318,16 @@ fs_read_sector:
     ; AX has low 16 bits of LBA
     xor dx, dx
     mov cx, [sectors_per_track]
+    test cx, cx
+    jz .chs_error                   ; division by zero guard
     div cx                          ; AX = LBA / sectors_per_track, DX = LBA % sectors_per_track
     inc dx                          ; DX = Sector (1-indexed)
     mov cl, dl                      ; CL = Sector
     
     xor dx, dx
     mov cx, [number_of_heads]
+    test cx, cx
+    jz .chs_error                   ; division by zero guard
     div cx                          ; AX = Cylinder, DX = Head
     
     mov ch, al                      ; CH = Cylinder (low 8 bits)
@@ -338,6 +342,12 @@ fs_read_sector:
     
     mov ax, 0x0201                  ; Read 1 sector
     int 0x13
+    jmp .done
+
+.chs_error:
+    pop ax                          ; clean up stack on error
+    pop bx
+    stc                             ; set carry flag to signal read error
     jmp .done
 
 .lba_read:
