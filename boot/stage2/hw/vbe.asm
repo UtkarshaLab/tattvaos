@@ -29,9 +29,16 @@ vbe_init:
     mov si, msg_vbe_init
     call uart_print
 
+    mov al, 'a'
+    call uart_putc
+
     mov di, vbe_info_block
     mov ax, 0x4F00
     int 0x10
+
+    mov al, 'b'
+    call uart_putc
+
     cmp ax, 0x004F
     jne .vbe_failed
 
@@ -44,6 +51,9 @@ vbe_init:
     mov ax, [vbe_info_block + 4]
     cmp ax, 0x0200
     jb .vbe_failed
+
+    mov al, 'c'
+    call uart_putc
 
     ; -------------------------------------------------------------------------
     ; Step 1.5: Query EDID to get native resolution
@@ -100,6 +110,9 @@ vbe_init:
     mov ax, [vbe_info_block + 16]
     mov fs, ax                      ; FS:SI points to mode list
 
+    mov al, 'd'
+    call uart_putc
+
 .find_mode_loop:
     mov cx, [fs:si]                 ; read mode number
     cmp cx, 0xFFFF                  ; end of list?
@@ -108,10 +121,16 @@ vbe_init:
     push fs
     push si
 
+    mov al, 'e'
+    call uart_putc
+
     ; Query mode details
     mov di, vbe_mode_info
     mov ax, 0x4F01
     int 0x10
+
+    mov al, 'f'
+    call uart_putc
 
     pop si
     pop fs
@@ -167,8 +186,16 @@ vbe_init:
     mov cx, [best_mode]
     or cx, 0x4000                   ; enable Linear Frame Buffer (LFB)
     mov bx, cx
+
+    mov al, 'h'
+    call uart_putc
+
     mov ax, 0x4F02
     int 0x10
+
+    mov al, 'i'
+    call uart_putc
+
     cmp ax, 0x004F
     jne .vbe_failed
 
