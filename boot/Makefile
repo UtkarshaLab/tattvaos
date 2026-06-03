@@ -1,4 +1,5 @@
 ASM     = nasm
+LINKER ?= lld-link
 QEMU64  = qemu-system-x86_64
 QEMU32  = qemu-system-i386
 
@@ -68,9 +69,16 @@ debug32: boot.img
 		-ex "break *0x8000" \
 		-ex "continue"
 
+# UEFI Path build targets
+uefi/entry.obj: uefi/entry.asm uefi/protocol.asm uefi/console.asm uefi/gop.asm uefi/file.asm uefi/memory.asm uefi/handoff.asm
+	$(ASM) -f win64 uefi/entry.asm -o uefi/entry.obj -i uefi/ -i .
+
+uefi/BOOTX64.EFI: uefi/entry.obj
+	$(LINKER) /subsystem:efi_application /entry:efi_main /out:uefi/BOOTX64.EFI uefi/entry.obj
+
 # Run tests
 test: boot.img
 	bash tests/run_all.sh
 
 clean:
-	rm -f boot.img stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin
+	rm -f boot.img stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin uefi/entry.obj uefi/BOOTX64.EFI
