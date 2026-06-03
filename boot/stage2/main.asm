@@ -120,8 +120,17 @@ stage2_main:
     call uart_println
 
     ; -------------------------------------------------------------------------
-    ; STEP 3.5: Load kernel from disk (Option A)
+    ; STEP 3.5: Load kernel from disk
     ; -------------------------------------------------------------------------
+    ; First, try loading dynamically from GPT/FAT32 filesystem
+    call fs_load_kernel
+    test ax, ax
+    jnz .kernel_success             ; if loaded successfully, go to success directly!
+
+    ; Fallback: Option A (raw sectors)
+    mov si, msg_fallback
+    call uart_print
+
     mov si, msg_kernel
     call uart_print
 
@@ -335,6 +344,7 @@ msg_ok:         db "OK", 0
 msg_fail:       db "FAIL", 0
 msg_ram:        db "RAM: ", 0
 msg_kernel:     db "Kernel... ", 0
+msg_fallback:   db "WARN: FAT32 load failed, falling back to Option A...", 13, 10, 0
 msg_err_prefix: db " (Error: ", 0
 msg_err_suffix: db ")", 0
 msg_err_dash:   db " - ", 0
