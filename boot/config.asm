@@ -103,5 +103,9 @@ BOOT_INFO_FB_WIDTH   equ 0x7028     ; dd: framebuffer width
 BOOT_INFO_FB_HEIGHT  equ 0x702C     ; dd: framebuffer height
 BOOT_INFO_FB_PITCH   equ 0x7030     ; dd: framebuffer pitch
 BOOT_INFO_FB_FORMAT  equ 0x7034     ; dd: framebuffer format
+BOOT_INFO_INITRD_ADDR equ 0x7038    ; dq: initrd physical address
+BOOT_INFO_INITRD_SIZE equ 0x7040    ; dq: initrd size
+BOOT_INFO_EDD_ADDR   equ 0x7048     ; dq: EDD parameters physical address
+BOOT_INFO_SMP_CORES  equ 0x7050     ; dd: SMP logical core count
 
 %endif ; CONFIG_ASM
