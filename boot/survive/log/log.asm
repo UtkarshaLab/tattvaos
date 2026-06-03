@@ -24,6 +24,7 @@ global survive_log_panic
 ; Clobbers: RAX, RCX, RDX, RSI, RDI
 ; =============================================================================
 survive_log_panic:
+    cld                             ; Clear direction flag for forward copy
     ; 1. Store the crash RIP at 0x9800
     mov [0x9800], rdx
 
