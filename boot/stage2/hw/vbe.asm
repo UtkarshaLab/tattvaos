@@ -46,6 +46,45 @@ vbe_init:
     jb .vbe_failed
 
     ; -------------------------------------------------------------------------
+    ; Step 1.5: Query EDID to get native resolution
+    ; -------------------------------------------------------------------------
+    mov di, vbe_mode_info           ; temporary buffer
+    mov ax, 0x4F15                  ; VBE Read EDID
+    mov bx, 0x0001                  ; read EDID block
+    xor cx, cx                      ; controller 0
+    xor dx, dx                      ; block 0
+    int 0x10
+    cmp ax, 0x004F
+    jne .no_edid
+
+    ; Parse horizontal active pixels (offset 54 and 55)
+    xor ax, ax
+    mov al, [vbe_mode_info + 54]    ; active low
+    mov cl, [vbe_mode_info + 55]    ; active high (bits 4-7)
+    shr cl, 4
+    and cx, 0x0F
+    shl cx, 8
+    or ax, cx
+    mov [edid_width], ax
+
+    ; Parse vertical active pixels (offset 57 and 58)
+    xor ax, ax
+    mov al, [vbe_mode_info + 57]    ; active low
+    mov cl, [vbe_mode_info + 58]    ; active high (bits 4-7)
+    shr cl, 4
+    and cx, 0x0F
+    shl cx, 8
+    or ax, cx
+    mov [edid_height], ax
+    jmp .edid_done
+
+.no_edid:
+    mov word [edid_width], 0
+    mov word [edid_height], 0
+
+.edid_done:
+
+    ; -------------------------------------------------------------------------
     ; Step 2: Loop through modes and find the best one
     ; -------------------------------------------------------------------------
     ; VideoModePtr is at offset 14 (far pointer: offset, segment)
@@ -165,6 +204,36 @@ vbe_init:
 ; =============================================================================
 vbe_score_mode:
     xor ah, ah                      ; default: 0
+    
+    ; Check if EDID values are valid
+    mov cx, [rel edid_width]
+    test cx, cx
+    jz .static_score
+    mov si, [rel edid_height]
+    test si, si
+    jz .static_score
+
+    ; Check if matches EDID native resolution
+    cmp dx, cx
+    jne .static_score
+    cmp bx, si
+    jne .static_score
+
+    ; Match! High priority score
+    cmp al, 32
+    je .score_edid_32
+    cmp al, 24
+    je .score_edid_24
+    mov ah, 7                       ; 16-bit EDID mode
+    ret
+.score_edid_32:
+    mov ah, 9
+    ret
+.score_edid_24:
+    mov ah, 8
+    ret
+
+.static_score:
     cmp dx, 1024
     jne .score_800
     cmp bx, 768
@@ -232,6 +301,9 @@ best_height:    dw 0
 best_bpp:       db 0
 best_pitch:     dw 0
 best_fb_addr:   dd 0
+
+edid_width:     dw 0
+edid_height:    dw 0
 
 align 16
 vbe_info_block:
