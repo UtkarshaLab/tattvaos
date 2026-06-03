@@ -113,6 +113,22 @@ cpu_init_hardware:
     call uart_print_str
 .fsgsbase_done:
 
+    ; 10b. Enable Process Context Identifiers (CR4.PCIDE) if supported
+    mov eax, 1
+    cpuid
+    test ecx, 1 << 17               ; Check PCID support (ECX bit 17)
+    jz .no_pcid
+    mov rax, cr4
+    or rax, 1 << 17                 ; set PCIDE (bit 17)
+    mov cr4, rax
+    mov rsi, msg_init_pcid
+    call uart_print_str
+    jmp .pcid_done
+.no_pcid:
+    mov rsi, msg_warn_pcid
+    call uart_print_str
+.pcid_done:
+
     ; 11. Enable SSE/AVX Coprocessor Execution
     mov rax, cr0
     or rax, 1 << 1                  ; set MP (bit 1)
@@ -441,6 +457,8 @@ msg_cpu_ok:         db "CPU features verified (SSE3, AVX, AVX2, FMA).", 0x0D, 0x
 msg_warn_smep:      db "[WARN] CPU does not support SMEP (Supervisor Mode Execution Prevention)", 0x0D, 0x0A, 0
 msg_warn_smap:      db "[WARN] CPU does not support SMAP (Supervisor Mode Access Prevention)", 0x0D, 0x0A, 0
 msg_warn_fsgsbase:  db "[WARN] CPU does not support FSGSBASE instructions", 0x0D, 0x0A, 0
+msg_init_pcid:      db "Process Context Identifiers (PCID) enabled.", 0x0D, 0x0A, 0
+msg_warn_pcid:      db "[WARN] CPU does not support PCID (Process Context Identifiers)", 0x0D, 0x0A, 0
 msg_warn_nx:        db "[WARN] CPU does not support NX (No-Execute) protection", 0x0D, 0x0A, 0
 msg_warn_mtrr:      db "[WARN] MTRRs are disabled or not supported", 0x0D, 0x0A, 0
 msg_err_acpi:       db "!!! KERNEL PANIC: ACPI RSDP pointer checksum verification failed !!!", 0x0D, 0x0A, 0
