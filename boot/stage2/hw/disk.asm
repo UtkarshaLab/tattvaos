@@ -65,4 +65,39 @@ align 2
 sectors_per_track:  dw 18             ; default to 1.44MB floppy geometry
 number_of_heads:    dw 2              ; default to 1.44MB floppy geometry
 
+; =============================================================================
+; disk_query_edd — Query Extended Drive Parameters (EDD)
+; Input:  none
+; Output: none
+; =============================================================================
+disk_query_edd:
+    push ax
+    push dx
+    push si
+    push ds
+
+    xor ax, ax
+    mov ds, ax
+    mov si, edd_params_block
+    mov word [si], 74                ; buffer size = 74 bytes (EDD 3.0)
+    mov word [si + 30], 0            ; clear key
+
+    mov ah, 0x48                     ; INT 13h AH=48h
+    mov dl, [boot_drive]
+    int 0x13
+    jc .done
+
+    mov byte [edd_supported], 1
+
+.done:
+    pop ds
+    pop si
+    pop dx
+    pop ax
+    ret
+
+edd_supported:     db 0
+align 4
+edd_params_block:  times 74 db 0
+
 %endif ; HW_DISK_ASM
