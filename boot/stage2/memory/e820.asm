@@ -85,11 +85,21 @@ e820_detect:
     cmp ax, E820_MAX_ENTRIES
     jae .detect_done
 
+    push ax
+    mov al, 'a'
+    call uart_putc
+    pop ax
+
     ; BIOS call
     mov eax, 0x0000E820
     mov ecx, E820_ENTRY_SIZE
     mov edx, E820_MAGIC
     int 0x15
+
+    push ax
+    mov al, 'b'
+    call uart_putc
+    pop ax
 
     jc .detect_done                 ; carry = end of list
     cmp eax, E820_MAGIC
