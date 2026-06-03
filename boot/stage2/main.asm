@@ -53,6 +53,8 @@ stage2_main:
     jmp .halt
 
 .a20_done:
+    call test_a20
+    call test_uart
 
     ; -------------------------------------------------------------------------
     ; STEP 2: Detect CPU features
@@ -127,6 +129,8 @@ stage2_main:
     call uart_println
 
 .mem_done:
+    call test_e820
+    call test_fat32
 
     ; -------------------------------------------------------------------------
     ; STEP 3.4: Query disk geometry and EDD drive parameters
@@ -415,6 +419,7 @@ CPU_FEAT_AMX    equ (1 << 7)       ; AMX supported
 stage2_main_pm32:
     call idt_setup
     call paging_setup
+    call test_paging
     call simd_enable
     call longmode_enter
 
