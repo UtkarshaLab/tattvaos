@@ -45,6 +45,17 @@ interrupts_init:
     
     mov rdi, rbx                    ; vector index
     mov rsi, [isr_table + rbx * 8]  ; handler address
+    
+    ; Set IST index in RDX: 1 for vector 8 (#DF) and vector 14 (#PF), 0 otherwise
+    xor rdx, rdx
+    cmp rbx, 8                      ; Double Fault
+    je .set_ist
+    cmp rbx, 14                     ; Page Fault
+    je .set_ist
+    jmp .do_register
+.set_ist:
+    mov rdx, 1                      ; Use IST 1 (Emergency Stack)
+.do_register:
     call register_idt_handler
     
     inc rbx
@@ -66,6 +77,7 @@ interrupts_init:
 ; register_idt_handler — write a 16-byte gate descriptor to the IDT
 ; Input:  RDI = vector index (0-255)
 ;         RSI = handler address (64-bit)
+;         RDX = IST index (0-7)
 ; Output: nothing
 ; Clobbers: none
 ; -----------------------------------------------------------------------------
@@ -87,8 +99,8 @@ register_idt_handler:
     ; Write selector (SEL_CODE64 = 0x08)
     mov word [rbx + 2], 0x08
 
-    ; Write IST (0 = not using IST)
-    mov byte [rbx + 4], 0
+    ; Write IST (lower 3 bits written to byte 4)
+    mov [rbx + 4], dl
 
     ; Write type_attr (0x8E: present, ring 0, 64-bit Interrupt Gate)
     mov byte [rbx + 5], 0x8E
