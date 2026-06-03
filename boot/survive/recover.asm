@@ -229,7 +229,7 @@ load_kernel_raw:
 
 .chs_fallback:
     ; Read sector-by-sector CHS
-    mov bp, 17                      ; BP = current LBA (starts at 17)
+    mov bp, KERNEL_LBA                      ; BP = current LBA (starts at KERNEL_LBA)
     mov di, KERNEL_SECTORS          ; DI = sectors count (64)
 .read_loop:
     ; Convert BP (LBA) to CHS using dynamic variables
@@ -303,7 +303,7 @@ recover_lba_packet:
     dw KERNEL_SECTORS               ; number of sectors
     dw 0x0000                       ; offset
     dw (KERNEL_TEMP >> 4)           ; segment (0x2000)
-    dq 17                           ; starting LBA
+    dq KERNEL_LBA                           ; starting LBA
 
 ; 16-bit strings
 msg_reloading:          db "Recovery: reloading kernel...", 0
