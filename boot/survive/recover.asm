@@ -135,56 +135,56 @@ longmode_recovery:
     call kernel_load
 
     ; Restore CR3 (pristine PML4 address)
-    mov rax, [0x9090]
+    mov rax, [SURVIVE_PAGE + 0x90]
     mov cr3, rax
 
     ; Restore CR0
-    mov rax, [0x9080]
+    mov rax, [SURVIVE_PAGE + 0x80]
     mov cr0, rax
 
     ; Restore CR4
-    mov rax, [0x9098]
+    mov rax, [SURVIVE_PAGE + 0x98]
     mov cr4, rax
 
     ; Restore GDTR and IDTR
-    lgdt [0x90E0]
-    lidt [0x90F0]
+    lgdt [SURVIVE_PAGE + 0xE0]
+    lidt [SURVIVE_PAGE + 0xF0]
 
     ; Restore Stack contents
     cld                             ; Clear direction flag for forward copy
-    mov rdi, [0x9038]               ; RDI = pristine RSP
-    mov rsi, 0x9100                 ; RSI = stack backup
+    mov rdi, [SURVIVE_PAGE + 0x38]   ; RDI = pristine RSP
+    mov rsi, SURVIVE_PAGE + 0x100   ; RSI = stack backup
     mov rcx, 192                    ; 192 * 8 = 1536 bytes
     rep movsq
 
     ; Restore general-purpose registers (except RSP and RAX)
-    mov rbx, [0x9008]
-    mov rcx, [0x9010]
-    mov rdx, [0x9018]
-    mov rsi, [0x9020]
-    mov rdi, [0x9028]
-    mov rbp, [0x9030]
-    mov r8,  [0x9040]
-    mov r9,  [0x9048]
-    mov r10, [0x9050]
-    mov r11, [0x9058]
-    mov r12, [0x9060]
-    mov r13, [0x9068]
-    mov r14, [0x9070]
-    mov r15, [0x9078]
+    mov rbx, [SURVIVE_PAGE + 0x08]
+    mov rcx, [SURVIVE_PAGE + 0x10]
+    mov rdx, [SURVIVE_PAGE + 0x18]
+    mov rsi, [SURVIVE_PAGE + 0x20]
+    mov rdi, [SURVIVE_PAGE + 0x28]
+    mov rbp, [SURVIVE_PAGE + 0x30]
+    mov r8,  [SURVIVE_PAGE + 0x40]
+    mov r9,  [SURVIVE_PAGE + 0x48]
+    mov r10, [SURVIVE_PAGE + 0x50]
+    mov r11, [SURVIVE_PAGE + 0x58]
+    mov r12, [SURVIVE_PAGE + 0x60]
+    mov r13, [SURVIVE_PAGE + 0x68]
+    mov r14, [SURVIVE_PAGE + 0x70]
+    mov r15, [SURVIVE_PAGE + 0x78]
 
     ; Restore stack pointer
-    mov rsp, [0x9038]
+    mov rsp, [SURVIVE_PAGE + 0x38]
 
     ; Restore RFLAGS
-    push qword [0x90D0]
+    push qword [SURVIVE_PAGE + 0xD0]
     popfq
 
     ; Restore RAX (last register)
-    mov rax, [0x9000]
+    mov rax, [SURVIVE_PAGE]
 
     ; Jump to the pristine RIP
-    jmp [0x90D8]
+    jmp [SURVIVE_PAGE + 0xD8]
 
 [BITS 16]
 ; =============================================================================
