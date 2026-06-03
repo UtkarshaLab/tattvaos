@@ -57,20 +57,28 @@ vbe_init:
     cmp ax, 0x004F
     jne .no_edid
 
-    ; Parse horizontal active pixels (offset 54 and 55)
+    ; Parse horizontal active pixels from detailed timing descriptor
+    ; DTD starts at EDID offset 54. Layout:
+    ;   +0,+1: pixel clock (skip)
+    ;   +2: H active low 8 bits
+    ;   +3: H blanking low 8 bits
+    ;   +4: H active high (bits 7-4) | H blanking high (bits 3-0)
     xor ax, ax
-    mov al, [vbe_mode_info + 54]    ; active low
-    mov cl, [vbe_mode_info + 55]    ; active high (bits 4-7)
+    mov al, [vbe_mode_info + 56]    ; DTD+2: H active low 8 bits
+    mov cl, [vbe_mode_info + 58]    ; DTD+4: H active high nibble
     shr cl, 4
     and cx, 0x0F
     shl cx, 8
     or ax, cx
     mov [edid_width], ax
 
-    ; Parse vertical active pixels (offset 57 and 58)
+    ; Parse vertical active pixels
+    ;   +5: V active low 8 bits
+    ;   +6: V blanking low 8 bits
+    ;   +7: V active high (bits 7-4) | V blanking high (bits 3-0)
     xor ax, ax
-    mov al, [vbe_mode_info + 57]    ; active low
-    mov cl, [vbe_mode_info + 58]    ; active high (bits 4-7)
+    mov al, [vbe_mode_info + 59]    ; DTD+5: V active low 8 bits
+    mov cl, [vbe_mode_info + 61]    ; DTD+7: V active high nibble
     shr cl, 4
     and cx, 0x0F
     shl cx, 8
