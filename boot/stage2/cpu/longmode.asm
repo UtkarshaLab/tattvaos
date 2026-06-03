@@ -178,6 +178,9 @@ longmode_64:
     mov rsi, msg_longmode_ok
     call uart_print_64              ; note: uart_print needs 64-bit version
 
+    ; Run 64-bit survive unit test
+    call test_survive
+
     ; -------------------------------------------------------------------------
     ; STEP 9: Load and jump to kernel
     ; Copy kernel from real-mode temp buffer (0x20000) to 1MB mark (0x100000)
