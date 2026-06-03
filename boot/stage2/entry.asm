@@ -51,6 +51,7 @@ stage2_entry:
     ; Always re-initialize at the start of each stage.
     ; -------------------------------------------------------------------------
     cli                             ; disable interrupts during setup
+    cld                             ; Clear direction flag for string operations
 
     xor ax, ax
     mov ds, ax                      ; data segment = 0x0000
