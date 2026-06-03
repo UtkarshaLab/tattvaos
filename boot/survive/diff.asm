@@ -63,13 +63,12 @@ survive_diff:
 .compare:
     ; Compare [0x9000 + R9] (pristine) vs [0x9A00 + R9] (crash)
     mov rax, [0x9000 + r9]
-    mov rbx, [0x9A00 + r9]
-    cmp rax, rbx
+    mov r10, [0x9A00 + r9]
+    cmp rax, r10
     je .next                        ; if equal, skip
 
-    ; Save values
-    mov r10, rax                    ; R10 = pristine
-    mov r11, rbx                    ; R11 = crash
+    push r10                        ; Push crash value to stack
+    push rax                        ; Push pristine value to stack
 
     ; Print register name
     ; Name string is at reg_names + R8 * 4
@@ -83,13 +82,13 @@ survive_diff:
     lea rsi, [msg_diff_middle]      ; " diff: pristine=0x"
     call uart_print_64
 
-    mov rax, r10                    ; RAX = pristine
+    pop rax                         ; Pop pristine value
     call uart_print_hex64
 
     lea rsi, [msg_diff_crash]       ; " crash=0x"
     call uart_print_64
 
-    mov rax, r11                    ; RAX = crash
+    pop rax                         ; Pop crash value
     call uart_print_hex64
 
     lea rsi, [msg_crlf]
