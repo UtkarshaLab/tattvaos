@@ -235,6 +235,60 @@ vma_destroy:
 .done:
     ret
 
+; -----------------------------------------------------------------------------
+; virt_create_user_pml4 — creates a shadow User PML4 page table for KPTI
+; Input:
+;   RDI = physical address of the Kernel PML4 (if 0, reads current CR3)
+; Output:
+;   RAX = physical address of the User PML4, or 0 if OOM
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9
+; -----------------------------------------------------------------------------
+global virt_create_user_pml4
+virt_create_user_pml4:
+    push rbx
+    push r12
+    
+    mov rbx, rdi
+    test rbx, rbx
+    jnz .have_kernel_pml4
+    mov rbx, cr3
+    and rbx, 0xFFFFFFFFFFFFF000     ; Rbx = current Kernel PML4
+.have_kernel_pml4:
+
+    ; 1. Allocate a physical page for the User PML4
+    call phys_alloc_page
+    test rax, rax
+    jz .oom
+    mov r12, rax                    ; R12 = new User PML4 physical address
+
+    ; 2. Zero out the new User PML4
+    mov rdi, r12
+    mov rsi, 4096
+    call memzero
+
+    ; 3. Copy user-space mappings (entries 0 to 255) from Kernel PML4
+    ; Each entry is 8 bytes. 256 entries = 2048 bytes.
+    mov rdi, r12                    ; dest
+    mov rsi, rbx                    ; source
+    mov rdx, 2048                   ; size in bytes
+    call memcpy
+
+    ; 4. Copy the kernel exception/trampoline mapping (PML4 entry 511)
+    ; This is required so the CPU can transition to Ring 0 during interrupts.
+    mov rcx, [rbx + 511 * 8]
+    mov [r12 + 511 * 8], rcx
+
+    mov rax, r12                    ; return User PML4
+    jmp .exit
+
+.oom:
+    xor rax, rax                    ; return 0 on OOM
+
+.exit:
+    pop r12
+    pop rbx
+    ret
+
 section .data
 
 align 8
