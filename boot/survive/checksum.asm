@@ -13,9 +13,6 @@
 
 [BITS 64]
 
-global survive_checksum_save
-global survive_checksum_verify
-
 ; =============================================================================
 ; survive_checksum_save — computes CRC32 of first 4092 bytes and saves at 0x9FFC
 ; Input:  none
