@@ -92,7 +92,6 @@ stage2_main:
     call uart_print
 
     call e820_detect                ; fills table at E820_DEST
-    call e820_print                 ; debug print map
     call e820_parse                 ; find usable regions
     call e820_sort                  ; sort by base address
     call e820_merge                 ; merge overlapping entries
