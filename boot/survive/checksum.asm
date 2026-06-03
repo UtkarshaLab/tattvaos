@@ -84,8 +84,8 @@ helper_crc32:
 .loop_bytes:
     test rcx, rcx
     jz .done
-    movzx ebx, byte [rsi]
-    xor al, bl
+    movzx r10d, byte [rsi]
+    xor al, r10b
     mov edx, 8
 .loop_bits:
     shr eax, 1
