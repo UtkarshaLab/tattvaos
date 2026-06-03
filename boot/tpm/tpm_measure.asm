@@ -43,8 +43,8 @@ tpm_measure_all:
 
     ; 2. Measure Stage 2 (PCR 4)
     ; Stage 2 resides in memory at STAGE2_LOAD (0x8000), size is STAGE2_SECTORS * 512
-    mov rsi, 0x8000                  ; Stage2 Load address
-    mov rcx, 16 * 512                ; 16 sectors = 8KB
+    mov rsi, STAGE2_LOAD             ; Stage2 Load address
+    mov rcx, STAGE2_SECTORS * 512    ; Use config constant
     lea rdi, [rel tpm_digest_buf]
     call sha256_hash
 
@@ -55,8 +55,8 @@ tpm_measure_all:
 
     ; 3. Measure Kernel (PCR 4)
     ; Kernel resides in memory at KERNEL_LOAD (0x100000), size is KERNEL_SECTORS * 512
-    mov rsi, 0x100000                ; Kernel Load address
-    mov rcx, 64 * 512                ; 64 sectors = 32KB
+    mov rsi, KERNEL_LOAD             ; Kernel Load address
+    mov rcx, KERNEL_SECTORS * 512    ; Use config constant
     lea rdi, [rel tpm_digest_buf]
     call sha256_hash
 
@@ -75,31 +75,30 @@ tpm_measure_all:
     pop rsi
     ret
 
-; Helper to print UART messages in 64-bit mode (redirects to uart_print_64)
+; Helper to print null-terminated string to COM1 in 64-bit mode
 uart_println_64:
-    ; Assuming uart_print_64 exists in stage2 files
-    ; If not, we can implement a basic print block here or call it
-    ; Let's check where it is: stage2/hw/uart/uart_print.asm contains print functions.
-    ; We can declare it external or just call it directly since all files are assembled together.
-    ; Let's call uart_print_64.
     push rsi
+    push rbx
+    push rdx
 .print_loop:
     lodsb
     test al, al
     jz .print_done
-    ; Write to COM1 I/O port
-    mov dx, 0x3F8
+    mov bl, al                       ; save character in BL
+    ; Wait for TX buffer empty
+    mov dx, 0x3F8 + 5               ; Line Status Register
 .wait_tx:
-    add dx, 5
     in al, dx
-    test al, 0x20
+    test al, 0x20                    ; TX holding register empty?
     jz .wait_tx
-    sub dx, 5
-    pop rax
-    push rax
+    ; Send character
+    mov dx, 0x3F8                    ; Data register
+    mov al, bl                       ; restore character
     out dx, al
     jmp .print_loop
 .print_done:
+    pop rdx
+    pop rbx
     pop rsi
     ret
 
