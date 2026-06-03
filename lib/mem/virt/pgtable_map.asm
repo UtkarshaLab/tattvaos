@@ -2,6 +2,8 @@
 ; Tattva OS — lib/mem/virt/pgtable_map.asm
 ; =============================================================================
 ; Virtual memory page mapping API (maps virtual -> physical).
+; Uses the pgtable_cache recycling pool (3.3) as a fast path for
+; intermediate table allocation, falling back to phys_alloc_page + memzero.
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -59,25 +61,14 @@ virt_map:
     test rbx, PAGE_PRESENT
     jnz .have_pml4
     
-    ; Allocate new PML4 page directory table
+    ; Allocate new PML4 table (cache fast path → PMM fallback)
     push rax
     push rcx
-    call phys_alloc_page
+    call ._alloc_zeroed_table
     pop rcx
     pop rdx                         ; RDX = parent directory address
     test rax, rax
     jz .oom
-    
-    ; Zero out the new page table
-    push rax
-    push rcx
-    push rdx
-    mov rdi, rax
-    mov rsi, 4096
-    call memzero
-    pop rdx
-    pop rcx
-    pop rax
     
     ; Link PML4 to PML5: present, writable, user
     mov rbx, rax
@@ -99,25 +90,14 @@ virt_map:
     test rbx, PAGE_PRESENT
     jnz .have_pdpt
 
-    ; Allocate new PDPT page directory table
+    ; Allocate new PDPT table
     push rax
     push rcx
-    call phys_alloc_page
+    call ._alloc_zeroed_table
     pop rcx
     pop rdx                         ; RDX = parent directory address
     test rax, rax
     jz .oom
-
-    ; Zero out the new page table
-    push rax
-    push rcx
-    push rdx
-    mov rdi, rax
-    mov rsi, 4096
-    call memzero
-    pop rdx
-    pop rcx
-    pop rax
 
     ; Link PDPT to PML4
     mov rbx, rax
@@ -138,25 +118,14 @@ virt_map:
     test rbx, PAGE_PRESENT
     jnz .have_pd
 
-    ; Allocate new PD page directory table
+    ; Allocate new PD table
     push rax
     push rcx
-    call phys_alloc_page
+    call ._alloc_zeroed_table
     pop rcx
     pop rdx
     test rax, rax
     jz .oom
-
-    ; Zero out the new page table
-    push rax
-    push rcx
-    push rdx
-    mov rdi, rax
-    mov rsi, 4096
-    call memzero
-    pop rdx
-    pop rcx
-    pop rax
 
     ; Link PD to PDPT
     mov rbx, rax
@@ -177,25 +146,14 @@ virt_map:
     test rbx, PAGE_PRESENT
     jnz .have_pt
 
-    ; Allocate new PT leaf page table
+    ; Allocate new PT leaf table
     push rax
     push rcx
-    call phys_alloc_page
+    call ._alloc_zeroed_table
     pop rcx
     pop rdx
     test rax, rax
     jz .oom
-
-    ; Zero out the new page table
-    push rax
-    push rcx
-    push rdx
-    mov rdi, rax
-    mov rsi, 4096
-    call memzero
-    pop rdx
-    pop rcx
-    pop rax
 
     ; Link PT to PD
     mov rbx, rax
@@ -232,6 +190,36 @@ virt_map:
     pop r13
     pop r12
     pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; ._alloc_zeroed_table — allocates a zeroed 4KB page for a page table
+; Tries the recycling pool first (O(1), no locks), then falls back to
+; phys_alloc_page + memzero.
+; Input:  none
+; Output: RAX = physical address of zeroed page, or 0 on OOM
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8-R11
+; NOTE: This is a local helper, not a public API.
+; -----------------------------------------------------------------------------
+._alloc_zeroed_table:
+    ; Fast path: try the recycling pool
+    call pgtable_cache_alloc
+    test rax, rax
+    jnz .alloc_done                 ; got a pre-zeroed page, return it
+
+    ; Slow path: allocate from PMM and zero it
+    call phys_alloc_page
+    test rax, rax
+    jz .alloc_done                  ; OOM, return 0
+
+    ; Zero the freshly allocated page
+    push rax
+    mov rdi, rax
+    mov rsi, 4096
+    call memzero
+    pop rax
+
+.alloc_done:
     ret
 
 %endif ; LIB_MEM_VIRT_PGTABLE_MAP_ASM
