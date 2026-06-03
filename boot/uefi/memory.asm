@@ -50,8 +50,8 @@ uefi_get_memory_map:
     lea rax, [uefi_desc_version]
     mov [rsp + 32], rax             ; 5th argument at stack offset 32
 
-    mov rsi, [rbp - 8]              ; RSI = BootServices
-    mov rax, [rsi + BS_GET_MEMORY_MAP]
+    mov rax, [rbp - 8]              ; RAX = BootServices
+    mov rax, [rax + BS_GET_MEMORY_MAP]
     call rax                        ; execute GetMemoryMap
 
     mov rdx, [uefi_map_key]         ; return MapKey value in RDX
