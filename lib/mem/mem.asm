@@ -22,5 +22,6 @@
 %include "lib/mem/phys/bitmap.asm"
 %include "lib/mem/phys/phys.asm"
 %include "lib/mem/heap/free_list.asm"
+%include "lib/mem/virt/pgtable.asm"
 
 %endif ; LIB_MEM_MEM_ASM
