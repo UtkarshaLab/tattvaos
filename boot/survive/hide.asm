@@ -55,10 +55,10 @@ hide_survive_page:
     cmp dword [es:si + 16], 1
     jne .next
 
-    ; Check if base <= 0x9000
+    ; Check if base <= SURVIVE_PAGE
     cmp dword [es:si + 4], 0        ; base high must be 0
     jne .next
-    cmp dword [es:si], 0x9000       ; base low must be <= 0x9000
+    cmp dword [es:si], SURVIVE_PAGE ; base low must be <= SURVIVE_PAGE
     ja .next
 
     ; Check if base + length >= 0xA000
@@ -67,9 +67,9 @@ hide_survive_page:
     add eax, [es:si + 8]
     adc edx, [es:si + 12]           ; EDX:EAX = base + length
     
-    test edx, edx                   ; if high dword is non-zero, then end > 0xA000
+    test edx, edx                   ; if high dword is non-zero, then end > SURVIVE_PAGE + 0x1000
     jnz .found
-    cmp eax, 0xA000
+    cmp eax, (SURVIVE_PAGE + 0x1000)
     jae .found
 
 .next:
@@ -138,12 +138,12 @@ hide_survive_page:
     add di, ax                      ; DI = bx * 24
     add di, E820_DEST + 2
 
-    ; 1. Write Entry A at entry[bx] (usable RAM below 0x9000)
+    ; 1. Write Entry A at entry[bx] (usable RAM below SURVIVE_PAGE)
     mov [es:di], eax                ; base low = orig_base
     mov dword [es:di + 4], 0        ; base high = 0
     
-    mov ebx, 0x9000
-    sub ebx, eax                    ; EBX = 0x9000 - orig_base
+    mov ebx, SURVIVE_PAGE
+    sub ebx, eax                    ; EBX = SURVIVE_PAGE - orig_base
     mov [es:di + 8], ebx            ; length low
     mov dword [es:di + 12], 0       ; length high
     mov dword [es:di + 16], 1       ; type = USABLE
@@ -151,22 +151,22 @@ hide_survive_page:
 
     ; 2. Write Entry B at entry[bx+1] (reserved snapshot page)
     add di, 24                      ; DI points to entry[bx+1]
-    mov dword [es:di], 0x9000       ; base low = 0x9000
+    mov dword [es:di], SURVIVE_PAGE ; base low = SURVIVE_PAGE
     mov dword [es:di + 4], 0        ; base high = 0
     mov dword [es:di + 8], 0x1000   ; length low = 0x1000 (4KB)
     mov dword [es:di + 12], 0       ; length high = 0
     mov dword [es:di + 16], 2       ; type = RESERVED
     mov dword [es:di + 20], 1       ; ext attributes
 
-    ; 3. Write Entry C at entry[bx+2] (usable RAM above 0xA000)
+    ; 3. Write Entry C at entry[bx+2] (usable RAM above SURVIVE_PAGE + 0x1000)
     add di, 24                      ; DI points to entry[bx+2]
-    mov dword [es:di], 0xA000       ; base low = 0xA000
+    mov dword [es:di], (SURVIVE_PAGE + 0x1000) ; base low = SURVIVE_PAGE + 0x1000
     mov dword [es:di + 4], 0        ; base high = 0
     
-    ; length = (orig_base + orig_len) - 0xA000
+    ; length = (orig_base + orig_len) - (SURVIVE_PAGE + 0x1000)
     add eax, ecx
     adc edx, 0                      ; EDX:EAX = orig_base + orig_len
-    sub eax, 0xA000
+    sub eax, (SURVIVE_PAGE + 0x1000)
     sbb edx, 0                      ; EDX:EAX = new length
     
     mov [es:di + 8], eax            ; length low
