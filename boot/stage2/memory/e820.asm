@@ -64,6 +64,7 @@ e820_total_mb:      dd 0
 ; Clobbers: EAX, EBX, ECX, EDX, DI, ES
 ; =============================================================================
 e820_detect:
+
     push eax
     push ebx
     push ecx
