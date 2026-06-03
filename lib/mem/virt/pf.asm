@@ -30,6 +30,7 @@ VMA_ONDEMAND    equ (1 << 7)
 PAGE_PRESENT    equ (1 << 0)
 PAGE_WRITABLE   equ (1 << 1)
 PAGE_USER       equ (1 << 2)
+PAGE_COW        equ (1 << 9)
 PAGE_NX         equ (1 << 63)
 
 ; External symbols
@@ -42,6 +43,10 @@ extern phys_free_page
 extern memzero
 extern memcpy
 extern virt_map
+extern virt_walk_table
+extern virt_split_super_1gb
+extern virt_split_huge_2mb
+extern tlb_shootdown
 
 ; -----------------------------------------------------------------------------
 ; page_fault_isr — Low-level assembly entry point for Vector 14 (#PF)
@@ -145,26 +150,54 @@ virt_page_fault_handler:
     test rax, rax
     jz .do_diagnostics              ; no VMA, invalid address -> panic
 
-    mov rbx, [rax + 16]             ; RBX = vma->flags (VMA structure: start, end, flags)
-                                    ; Wait, let's verify offset of .flags in vma_t:
-                                    ; start (8 bytes), end (8 bytes) -> flags is at offset 16!
+    mov rbx, [rax + 16]             ; RBX = vma->flags
 
-    ; 2. Check if it is an on-demand VMA
+    ; 2. Determine if Present fault (bit 0 of error_code)
+    test r13, 1                     ; bit 0 set?
+    jnz .present_fault
+
+    ; --- Non-Present Fault ---
+    ; Check if on-demand paging VMA
     test rbx, VMA_ONDEMAND
     jz .do_diagnostics              ; not on-demand VMA
 
-    ; 3. Check if fault was Present violation (bit 0 = 1)
-    test r13, 1                     ; Present bit set?
-    jnz .do_diagnostics             ; protection fault -> not standard ZFOD/on-demand paging
-
-    ; 4. Call handler for on-demand paging
+    ; Call handler for on-demand paging
     mov rdi, r12                    ; virtual address
     mov rsi, rax                    ; VMA pointer
     call virt_handle_ondemand
     test rax, rax
-    jz .do_diagnostics              ; OOM during map -> panic
+    jz .do_diagnostics              ; failed -> panic
 
-    ; Successfully handled!
+    mov rax, 1
+    jmp .exit
+
+.present_fault:
+    ; --- Present Fault (Protection Violation) ---
+    ; Check if it is a write fault (bit 1 of error_code)
+    test r13, 2                     ; bit 1 set?
+    jz .do_diagnostics              ; read access protection fault -> panic
+
+    ; Check if VMA is writable
+    test rbx, VMA_WRITE
+    jz .do_diagnostics              ; write to non-writable VMA -> panic
+
+    ; Walk page table to check if it's a COW page
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address, RDX = level
+    test rax, rax
+    jz .do_diagnostics              ; not mapped -> panic
+
+    mov rcx, [rax]                  ; RCX = PTE value
+    test rcx, PAGE_COW              ; is COW page?
+    jz .do_diagnostics              ; present write fault, but not marked COW -> panic
+
+    ; Call Copy-On-Write handler
+    mov rdi, r12                    ; virtual address
+    call virt_handle_cow
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
     mov rax, 1
     jmp .exit
 
@@ -329,6 +362,114 @@ virt_handle_ondemand:
 .oom:
     xor rax, rax                    ; return 0 (failure)
 .done:
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+
+; -----------------------------------------------------------------------------
+; virt_handle_cow — performs Copy-On-Write for a virtual address
+; Input:
+;   RDI = faulting virtual address
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM/error)
+; -----------------------------------------------------------------------------
+global virt_handle_cow
+virt_handle_cow:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; R12 = virtual address
+
+.walk_loop:
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .fail
+
+    mov r13, rax                    ; R13 = PTE address
+    mov r14, [rax]                  ; R14 = entry value
+    
+    test r14, PAGE_COW
+    jz .fail                        ; double check: must have COW set
+
+    cmp rdx, 4                      ; level 4?
+    je .do_cow
+    cmp rdx, 5                      ; level 5?
+    je .do_cow
+
+    ; It is huge/super. Split it!
+    cmp rdx, 2                      ; 1GB?
+    je .split_1gb
+    cmp rdx, 3                      ; 2MB?
+    je .split_2mb
+    jmp .fail
+
+.split_1gb:
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_split_super_1gb
+    test rax, rax
+    jz .fail
+    jmp .walk_loop
+
+.split_2mb:
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_split_huge_2mb
+    test rax, rax
+    jz .fail
+    jmp .walk_loop
+
+.do_cow:
+    ; Allocate a new physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov r15, rax                    ; R15 = new physical address
+
+    ; Copy page content: from virtual address r12 (aligned to 4KB) to r15
+    mov rdi, r15
+    mov rsi, r12
+    and rsi, -4096                  ; align source address to 4KB
+    mov rdx, 4096
+    call memcpy
+
+    ; Build new PTE: keep old flags except PAGE_COW, set PAGE_WRITABLE, set new physical address
+    mov rcx, r14                    ; old PTE value
+    
+    mov r10, 0xFFFFFFFFFFFFF000
+    not r10
+    and rcx, r10                    ; RCX = old flags (bits 0-11)
+    
+    mov r10, (1 << 63)
+    and r10, r14
+    or rcx, r10                     ; RCX = flags + NX
+    
+    and rcx, ~PAGE_COW              ; clear COW
+    or rcx, PAGE_WRITABLE           ; set writable
+    or rcx, r15                     ; set new physical address
+
+    ; Write back to page table (PTE is identity mapped, so we can write to R13 directly)
+    mov [r13], rcx
+
+    ; Flush TLB for this page
+    mov rdi, r12
+    mov rsi, 1
+    call tlb_shootdown
+
+    mov rax, 1                      ; success
+    jmp .exit
+
+.fail:
+    xor rax, rax                    ; failure
+
+.exit:
+    pop r15
     pop r14
     pop r13
     pop r12
