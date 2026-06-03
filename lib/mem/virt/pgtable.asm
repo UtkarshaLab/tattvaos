@@ -27,26 +27,48 @@ PAGE_NX         equ (1 << 63)       ; No-execute
 section .text
 
 ; -----------------------------------------------------------------------------
-; virt_walk_table — walks the 4-level page tables for a virtual address
+; virt_walk_table — walks the 4-level or 5-level page tables for a virtual address
 ; Input:
 ;   RDI = virtual address
-;   RSI = physical address of PML4 (if 0, reads current CR3)
+;   RSI = physical address of page directory base (PML5 if 5-level, PML4 if 4-level)
+;         (if 0, reads current CR3)
 ; Output:
 ;   RAX = physical address of the leaf Page Table Entry (PTE), or 0 if not mapped
-;   RDX = level where walk resolved (4 = 4KB page, 3 = 2MB huge page, 2 = 1GB super page)
+;   RDX = level where walk resolved:
+;         5 = 4KB page in 5-level paging, 4 = 4KB page in 4-level paging,
+;         3 = 2MB huge page, 2 = 1GB super page
 ; Clobbers: RAX, RCX, RDX, RSI, RDI, R8
 ; -----------------------------------------------------------------------------
 global virt_walk_table
 virt_walk_table:
-    ; 1. Load PML4 base physical address
+    ; 1. Load PML5/PML4 base physical address
     mov rax, rsi
     test rax, rax
-    jnz .have_pml4
+    jnz .have_root
     mov rax, cr3
     and rax, 0xFFFFFFFFFFFFF000     ; mask off PCID & status flags
-.have_pml4:
+.have_root:
 
-    ; 2. Walk PML4 (Level 4)
+    ; Check if 5-level paging (LA57) is active in CR4
+    mov rcx, cr4
+    test rcx, (1 << 12)             ; bit 12 = LA57
+    jz .level4                      ; if not set, do standard 4-level walk
+
+    ; -------------------------------------------------------------------------
+    ; 5-Level Paging Walk (Level 5)
+    ; -------------------------------------------------------------------------
+    mov rcx, rdi
+    shr rcx, 48
+    and rcx, 0x1FF                  ; RCX = PML5 index
+    mov r8, [rax + rcx * 8]         ; R8 = PML5 entry
+    test r8, PAGE_PRESENT
+    jz .not_mapped
+    
+    and r8, 0xFFFFFFFFFFFFF000      ; R8 = PML4 base physical address
+    mov rax, r8                     ; RAX = PML4 base for next step
+    
+.level4:
+    ; Walk PML4 (Level 4)
     mov rcx, rdi
     shr rcx, 39
     and rcx, 0x1FF                  ; RCX = PML4 index
@@ -97,12 +119,20 @@ virt_walk_table:
     and rcx, 0x1FF                  ; RCX = PT index
     
     lea rax, [r8 + rcx * 8]         ; RAX = physical address of PTE
-    mov rdx, 4                      ; Resolved at 4KB level (Level 4)
     
     ; Verify that the PTE is marked present
     mov rcx, [rax]
     test rcx, PAGE_PRESENT
     jz .not_mapped
+    
+    ; Determine resolved level (5 for 5-level, 4 for 4-level paging)
+    mov rcx, cr4
+    test rcx, (1 << 12)
+    jz .ret_level4
+    mov rdx, 5
+    ret
+.ret_level4:
+    mov rdx, 4
     ret
 
 .not_mapped:
