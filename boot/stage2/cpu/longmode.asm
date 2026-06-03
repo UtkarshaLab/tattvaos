@@ -265,8 +265,6 @@ longmode_64:
     call tpm_measure_all
 
     ; Save the pristine state snapshot and register the panic vector
-    extern survive_snapshot_save
-    extern survive_vector_install
     call survive_snapshot_save
     call survive_vector_install
 
