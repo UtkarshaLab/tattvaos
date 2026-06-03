@@ -161,7 +161,7 @@ stage2_main:
     call uart_print
 
     ; Track current starting LBA in BP for diagnostics
-    mov bp, 17
+    mov bp, KERNEL_LBA
 
     ; Try LBA first if supported (standard for hard drives like drive 0x80)
     mov ah, 0x41
@@ -206,7 +206,7 @@ stage2_main:
     mov es, ax
     xor bx, bx                      ; ES:BX = KERNEL_TEMP segment:0x0000
 
-    mov bp, 17                      ; BP = current LBA (starts at 17, next after stage2)
+    mov bp, KERNEL_LBA                      ; BP = current LBA (starts at KERNEL_LBA, next after stage2)
     mov di, KERNEL_SECTORS          ; DI = sectors left to read
 
 .read_loop:
@@ -391,7 +391,7 @@ lba_packet:
     dw KERNEL_SECTORS               ; number of sectors to read
     dw 0x0000                       ; buffer offset (0x0000)
     dw (KERNEL_TEMP >> 4)           ; buffer segment (0x2000)
-    dq 17                           ; starting LBA sector = 17 (after MBR + stage2)
+    dq KERNEL_LBA                           ; starting LBA sector = KERNEL_LBA (after MBR + stage2)
 
 ; CPU feature flags (stored at FEATURES_DEST by cpu_detect)
 CPU_FEAT_LM     equ (1 << 0)       ; long mode supported
