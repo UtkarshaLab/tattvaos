@@ -25,6 +25,9 @@ struc phys_state_t
     .total_pages    resq 1      ; Total usable pages in system
     .free_pages     resq 1      ; Current free page count
     .max_phys_addr  resq 1      ; Maximum physical RAM address detected
+    .reserved_pages resq 1      ; Number of reserved/allocated pages
+    .swap_pages     resq 1      ; Number of swapped pages
+    .dirty_pages    resq 1      ; Number of dirty pages
 endstruc
 
 %endif ; LIB_MEM_MEM_INC
