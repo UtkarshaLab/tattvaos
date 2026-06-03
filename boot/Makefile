@@ -30,7 +30,8 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/ops/memcpy.asm $(KERNEL_DIR)/../lib/mem/ops/memset.asm $(KERNEL_DIR)/../lib/mem/ops/memzero.asm $(KERNEL_DIR)/../lib/mem/ops/memcmp.asm $(KERNEL_DIR)/../lib/mem/ops/memmove.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/bump.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/free_list.asm \
-                          $(KERNEL_DIR)/../lib/mem/virt/pgtable.asm
+                          $(KERNEL_DIR)/../lib/mem/virt/pgtable.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/virt.asm
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
 		-i $(KERNEL_DIR)/ -i $(KERNEL_DIR)/../ \
 		-o $(KERNEL_DIR)/kernel.bin
