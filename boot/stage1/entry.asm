@@ -47,6 +47,7 @@ entry:
     ; Works in QEMU without this. Fails on real hardware without this.
     ; -------------------------------------------------------------------------
     cli                             ; disable interrupts during setup
+    cld                             ; Clear direction flag for string copy operations
 
     xor ax, ax                      ; ax = 0
     mov ds, ax                      ; data segment = 0x0000
