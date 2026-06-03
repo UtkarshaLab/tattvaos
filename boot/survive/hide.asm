@@ -45,10 +45,11 @@ hide_survive_page:
 
     ; Calculate pointer to entry[bx]
     mov ax, bx
-    mov dx, 24                      ; E820_ENTRY_SIZE
-    mul dx
-    add ax, E820_DEST + 2           ; AX = address of entry[bx]
-    mov si, ax                      ; SI = address of entry[bx]
+    shl ax, 3                       ; AX = bx * 8
+    mov si, ax
+    shl ax, 1                       ; AX = bx * 16
+    add si, ax                      ; SI = bx * 24
+    add si, E820_DEST + 2
 
     ; Check if type is USABLE (1)
     cmp dword [es:si + 16], 1
@@ -94,18 +95,20 @@ hide_survive_page:
 
     ; Source entry pointer (di)
     mov ax, di
-    mov dx, 24
-    mul dx
-    add ax, E820_DEST + 2
+    shl ax, 3                       ; AX = di * 8
     mov si, ax
+    shl ax, 1                       ; AX = di * 16
+    add si, ax                      ; SI = di * 24
+    add si, E820_DEST + 2
 
     ; Destination entry pointer (di + 2)
     mov ax, di
     add ax, 2
-    mov dx, 24
-    mul dx
-    add ax, E820_DEST + 2
+    shl ax, 3                       ; AX = (di + 2) * 8
     mov bp, ax
+    shl ax, 1                       ; AX = (di + 2) * 16
+    add bp, ax                      ; BP = (di + 2) * 24
+    add bp, E820_DEST + 2
 
     ; Copy 24 bytes
     push cx
@@ -128,11 +131,12 @@ hide_survive_page:
     pop eax                         ; EAX = orig_base (low)
 
     ; Calculate pointer to entry[bx]
-    mov di, bx
-    mov ax, 24
-    mul di
-    add ax, E820_DEST + 2
-    mov di, ax                      ; DI = pointer to entry[bx]
+    mov ax, bx
+    shl ax, 3                       ; AX = bx * 8
+    mov di, ax
+    shl ax, 1                       ; AX = bx * 16
+    add di, ax                      ; DI = bx * 24
+    add di, E820_DEST + 2
 
     ; 1. Write Entry A at entry[bx] (usable RAM below 0x9000)
     mov [es:di], eax                ; base low = orig_base
