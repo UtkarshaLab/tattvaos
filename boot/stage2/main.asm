@@ -125,6 +125,9 @@ stage2_main:
     mov si, msg_kernel
     call uart_print
 
+    ; Track current starting LBA in BP for diagnostics
+    mov bp, 17
+
     ; Try LBA first if supported (standard for hard drives like drive 0x80)
     mov ah, 0x41
     mov bx, 0x55AA
@@ -134,12 +137,33 @@ stage2_main:
     cmp bx, 0xAA55
     jne .fallback_chs               ; magic not flipped = LBA not supported
 
+    ; Setup LBA retry loop
+    mov cx, DISK_RETRY              ; CX = retry count (3)
+
+.lba_retry:
     ; LBA is supported! Use extended LBA read to load the entire kernel at once.
+    push cx                         ; preserve retry count
     mov si, lba_packet
     mov ah, 0x42
     mov dl, [boot_drive]
     int 0x13
+    pop cx                          ; restore retry count
     jnc .kernel_success             ; if LBA read succeeded, we are done!
+
+    ; Read failed, reset disk system (AH=0) and retry
+    push ax
+    push cx
+    xor ax, ax
+    mov dl, [boot_drive]
+    int 0x13
+    pop cx
+    pop ax
+
+    dec cx
+    jnz .lba_retry                  ; retry if we still have retries left
+
+    ; If LBA retries all failed, fallback to CHS mode
+    jmp .fallback_chs
 
 .fallback_chs:
     ; Fallback: robust floppy sector-by-sector CHS reader
@@ -226,6 +250,24 @@ stage2_main:
     call uart_print_hex8
     
     mov si, msg_err_suffix
+    call uart_print                 ; Print suffix without newline
+    
+    ; Print " Sector: XX"
+    mov si, msg_err_sector
+    call uart_print
+    
+    xor eax, eax
+    mov ax, bp                      ; AX = failing LBA sector
+    call uart_print_dec
+    
+    ; print CRLF
+    mov al, 0x0D
+    call uart_putc
+    mov al, 0x0A
+    call uart_putc
+    
+    ; Print Help message
+    mov si, msg_help
     call uart_println
     
     mov si, msg_kernel_halt
@@ -271,6 +313,8 @@ msg_ram:        db "RAM: ", 0
 msg_kernel:     db "Kernel... ", 0
 msg_err_prefix: db " (Error: ", 0
 msg_err_suffix: db ")", 0
+msg_err_sector: db " Sector: ", 0
+msg_help:       db "Help: Is kernel.ulf on disk?", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
 msg_cpu_halt:   db "HALT: CPU does not support long mode", 0
 msg_kernel_halt:db "HALT: Kernel load failed", 0
