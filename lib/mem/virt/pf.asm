@@ -157,6 +157,13 @@ virt_page_fault_handler:
 
     mov rbx, [rax + 16]             ; RBX = vma->flags
 
+    ; Check if write fault (bit 1 of error code set) to a non-writable VMA (VMA_WRITE clear)
+    test r13, 2                     ; write fault?
+    jz .no_write_violation
+    test rbx, VMA_WRITE             ; VMA writable?
+    jz .do_diagnostics              ; write to non-writable VMA -> panic
+.no_write_violation:
+
     ; 2. Determine if Present fault (bit 0 of error_code)
     test r13, 1                     ; bit 0 set?
     jnz .present_fault
@@ -605,7 +612,10 @@ virt_handle_zfod:
     ; 3. Map with writable permission
     mov rdx, [r13 + 16]             ; RDX = vma->flags
     xor rbx, rbx                    ; RBX = mapping flags
-    or rbx, PAGE_WRITABLE           ; set writable flag
+    test rdx, VMA_WRITE
+    jz .zfod_no_write
+    or rbx, PAGE_WRITABLE
+.zfod_no_write:
 
     test rdx, VMA_USER
     jz .write_no_user
@@ -684,7 +694,10 @@ virt_handle_stack_grow:
     ; 3. Map the page with VMA permissions (enforcing NX since it's stack, PAGE_WRITABLE since stack)
     mov rdx, [r13 + 16]             ; RDX = vma->flags
     xor rbx, rbx                    ; RBX = mapping flags
-    or rbx, PAGE_WRITABLE           ; stack must be writable
+    test rdx, VMA_WRITE
+    jz .stack_no_write
+    or rbx, PAGE_WRITABLE
+.stack_no_write:
 
     test rdx, VMA_USER
     jz .no_user
