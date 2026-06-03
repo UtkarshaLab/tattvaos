@@ -134,6 +134,8 @@ stage2_entry:
 %include "cache.asm"
 %include "simd_enable.asm"
 %include "fs.asm"
+%include "hw/acpi.asm"
+%include "hw/disk.asm"
 %include "e820.asm"
 %include "gdt_load.asm"
 %include "gdt_verify.asm"
