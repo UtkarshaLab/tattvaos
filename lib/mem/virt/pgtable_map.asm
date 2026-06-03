@@ -121,8 +121,26 @@ virt_map:
     and rcx, 0x1FF                  ; RCX = PDPT index
     mov rbx, [rax + rcx * 8]         ; RBX = PDPT entry
     test rbx, PAGE_PRESENT
-    jnz .have_pd
+    jz .create_pd
 
+    test rbx, PAGE_HUGE
+    jz .have_pd
+
+    ; It is a 1GB super page! Split it first.
+    push rax
+    push rcx
+    mov rdi, r12
+    mov rsi, rax
+    call virt_split_super_1gb
+    pop rcx
+    pop rax
+    test rax, rax
+    jz .oom
+
+    mov rbx, [rax + rcx * 8]         ; re-load split entry (now points to PD)
+    jmp .have_pd
+
+.create_pd:
     ; Allocate new PD table
     push rax
     push rcx
@@ -149,8 +167,26 @@ virt_map:
     and rcx, 0x1FF                  ; RCX = PD index
     mov rbx, [rax + rcx * 8]         ; RBX = PD entry
     test rbx, PAGE_PRESENT
-    jnz .have_pt
+    jz .create_pt
 
+    test rbx, PAGE_HUGE
+    jz .have_pt
+
+    ; It is a 2MB huge page! Split it first.
+    push rax
+    push rcx
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_split_huge_2mb
+    pop rcx
+    pop rax
+    test rax, rax
+    jz .oom
+
+    mov rbx, [rax + rcx * 8]         ; re-load split entry (now points to PT)
+    jmp .have_pt
+
+.create_pt:
     ; Allocate new PT leaf table
     push rax
     push rcx
