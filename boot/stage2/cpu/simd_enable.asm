@@ -18,6 +18,7 @@
 ; =============================================================================
 simd_enable:
     push eax
+    push ebx
     push ecx
     push edx
 
@@ -64,6 +65,7 @@ simd_enable:
 .no_avx:
     pop edx
     pop ecx
+    pop ebx
     pop eax
     ret
 
