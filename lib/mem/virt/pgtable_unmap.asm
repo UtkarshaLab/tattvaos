@@ -101,9 +101,24 @@ virt_unmap:
     mov rax, [r14]
     test rax, PAGE_PRESENT
     jz .done
-    ; If 1GB huge page, just clear and done (no sub-tables to reclaim)
+    
     test rax, PAGE_HUGE
-    jnz .clear_huge_pdpt
+    jz .pdpt_not_huge
+
+    ; It is a 1GB super page! Split it first.
+    push r14
+    push r13
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_split_super_1gb
+    pop r13
+    pop r14
+    test rax, rax
+    jz .done
+
+    mov rax, [r14]
+
+.pdpt_not_huge:
     and rax, 0xFFFFFFFFFFFFF000     ; RAX = PD base
 
     ; -------------------------------------------------------------------------
@@ -116,9 +131,26 @@ virt_unmap:
     mov rax, [r15]
     test rax, PAGE_PRESENT
     jz .done
-    ; If 2MB huge page, just clear and done
+    
     test rax, PAGE_HUGE
-    jnz .clear_huge_pd
+    jz .pd_not_huge
+
+    ; It is a 2MB huge page! Split it first.
+    push r15
+    push r14
+    push r13
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_split_huge_2mb
+    pop r13
+    pop r14
+    pop r15
+    test rax, rax
+    jz .done
+
+    mov rax, [r15]
+
+.pd_not_huge:
     and rax, 0xFFFFFFFFFFFFF000     ; RAX = PT base
 
     ; -------------------------------------------------------------------------
