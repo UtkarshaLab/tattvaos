@@ -31,5 +31,7 @@
 %include "lib/mem/virt/pgtable_unmap.asm"
 %include "lib/mem/virt/pgtable_walk.asm"
 %include "lib/mem/virt/virt.asm"
+%include "lib/mem/virt/thp.asm"
 
 %endif ; LIB_MEM_MEM_ASM
+
