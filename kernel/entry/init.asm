@@ -19,6 +19,14 @@ kernel_init:
     ; 1. Save BootInfo pointer in a global variable
     mov [boot_info_ptr], rdi
 
+    ; 1b. Load SMP active cores count from BootInfo structure (offset 80)
+    mov eax, [rdi + 80]             ; load core count
+    test eax, eax                   ; check if 0
+    jnz .store_cores
+    mov eax, 1                      ; default to 1 core
+.store_cores:
+    mov [smp_active_cores], eax
+
     ; 2. Initialize Kernel GDT & TSS (with IST stack overflow protection)
     call gdt_init
 
