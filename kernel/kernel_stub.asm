@@ -263,20 +263,20 @@ kernel_entry:
 
     ; print 8 nibbles
     mov edx, 8
-.hex_loop:
+.hex_loop32:
     rol ecx, 4                      ; rotate top nibble to bottom
     mov al, cl
     and al, 0x0F
     cmp al, 10
-    jl .hex_digit
+    jl .hex_digit32
     add al, 'A' - 10
-    jmp .hex_print
-.hex_digit:
+    jmp .hex_print32
+.hex_digit32:
     add al, '0'
-.hex_print:
+.hex_print32:
     call .uart_putc
     dec edx
-    jnz .hex_loop
+    jnz .hex_loop32
 
     pop rax
     pop rsi
@@ -305,20 +305,20 @@ kernel_entry:
 
     ; print 16 nibbles
     mov edx, 16
-.hex_loop:
+.hex_loop64:
     rol rcx, 4                      ; rotate top nibble to bottom
     mov al, cl
     and al, 0x0F
     cmp al, 10
-    jl .hex_digit
+    jl .hex_digit64
     add al, 'A' - 10
-    jmp .hex_print
-.hex_digit:
+    jmp .hex_print64
+.hex_digit64:
     add al, '0'
-.hex_print:
+.hex_print64:
     call .uart_putc
     dec edx
-    jnz .hex_loop
+    jnz .hex_loop64
 
     pop rax
     pop rsi
