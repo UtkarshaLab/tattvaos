@@ -32,13 +32,13 @@ $(KERNEL_DIR)/kernel_stub.bin: $(KERNEL_DIR)/kernel_stub.asm
 
 # Disk image layout:
 #   Sector 0       = stage1 (MBR, 512 bytes)
-#   Sector 1-16    = stage2 (up to 8KB)
-#   Sector 17+     = kernel (seek=17 = CHS sector 18)
+#   Sector 1-64    = stage2 (up to 32KB)
+#   Sector 65+     = kernel (seek=65 = CHS sector 66)
 boot.img: stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin
 	dd if=/dev/zero of=boot.img bs=512 count=2880
 	dd if=stage1/stage1.bin of=boot.img conv=notrunc
 	dd if=stage2/stage2.bin of=boot.img bs=512 seek=1 conv=notrunc
-	dd if=$(KERNEL_DIR)/kernel_stub.bin of=boot.img bs=512 seek=17 conv=notrunc
+	dd if=$(KERNEL_DIR)/kernel_stub.bin of=boot.img bs=512 seek=65 conv=notrunc
 
 # Enforce 512 byte MBR size — never disable this
 check: stage1/stage1.bin
