@@ -15,8 +15,6 @@
 
 [BITS 64]
 
-global survive_log_panic
-
 ; =============================================================================
 ; survive_log_panic — copies crash location and panic description to 0x9800
 ; Input:  RCX = pointer to ASCII null-terminated panic message string
