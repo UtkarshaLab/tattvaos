@@ -25,11 +25,11 @@ survive_checksum_save:
     push rdx
     push rax
 
-    mov rsi, 0x9000                 ; SURVIVE_PAGE
+    mov rsi, SURVIVE_PAGE           ; SURVIVE_PAGE
     mov rcx, 4092                   ; compute over 4092 bytes
     call helper_crc32
     
-    mov [0x9FFC], eax               ; store at the very end of the page
+    mov [SURVIVE_PAGE + 0xFFC], eax ; store at the very end of the page
 
     pop rax
     pop rdx
@@ -50,11 +50,11 @@ survive_checksum_verify:
     push rbx
     push rdx
 
-    mov rsi, 0x9000                 ; SURVIVE_PAGE
+    mov rsi, SURVIVE_PAGE           ; SURVIVE_PAGE
     mov rcx, 4092                   ; compute over 4092 bytes
     call helper_crc32
     
-    cmp eax, [0x9FFC]
+    cmp eax, [SURVIVE_PAGE + 0xFFC]
     jne .mismatch
     
     mov rax, 1
