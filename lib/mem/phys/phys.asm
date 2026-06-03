@@ -299,9 +299,36 @@ phys_init:
     jmp .reserve_bitmap_loop
 
 .reserve_bitmap_done:
-    ; Compute initial reserved pages count: reserved = total_pages - free_pages
+    ; 11. Recount free pages by scanning the bitmap for zero bits
+    ;     This is the authoritative count after all protections are applied.
+    mov rsi, [phys_state + phys_state_t.bitmap_addr]
+    mov rcx, [phys_state + phys_state_t.total_pages]
+    xor r8, r8                      ; R8 = free page counter
+    xor r9, r9                      ; R9 = current page index
+
+.recount_loop:
+    cmp r9, rcx
+    jge .recount_done
+
+    ; Test bit R9 in bitmap
+    mov rax, r9
+    shr rax, 3                      ; byte offset
+    mov rbx, r9
+    and rbx, 7                      ; bit offset
+    bt [rsi + rax], rbx
+    jc .recount_next                ; bit set = reserved, skip
+
+    inc r8                          ; bit clear = free page
+
+.recount_next:
+    inc r9
+    jmp .recount_loop
+
+.recount_done:
+    ; Store accurate counters
+    mov [phys_state + phys_state_t.free_pages], r8
     mov rax, [phys_state + phys_state_t.total_pages]
-    sub rax, [phys_state + phys_state_t.free_pages]
+    sub rax, r8
     mov [phys_state + phys_state_t.reserved_pages], rax
 
     pop r10
