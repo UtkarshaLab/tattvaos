@@ -142,20 +142,25 @@ ext4_load_file:
 
     ; 3. Load Inode 2 (Root Inode)
     ; Root inode is index 1 (0-based) in Inode Table of Group 0
-    ; LBA offset of Inode 2 = table_start_lba + (1 * inode_size) / 512
+    ; Compute absolute LBA of inode table = block_number * sectors_per_block + partition_start
     mov eax, [ext4_inode_table_block]
     xor ecx, ecx
     mov cx, [ext4_sec_per_block]
-    mul ecx                          ; EAX = inode table LBA offset from partition start
+    mul ecx                          ; EAX = inode table sector offset (blocks * sec_per_block)
     add eax, [ext4_part_lba]         ; EAX = absolute starting LBA of inode table
+    mov [ext4_inode_table_lba], eax  ; save for reuse
 
-    ; Calculate sector and offset for Inode 2
+    ; Calculate sector and byte offset for Inode 2 (index 1)
+    ; Byte offset = 1 * inode_size
+    xor eax, eax
+    mov ax, [ext4_inode_size]        ; EAX = inode_size (e.g. 256)
+    ; EAX = 1 * inode_size (for inode index 1)
     xor edx, edx
-    mov dx, [ext4_inode_size]        ; Inode 2 offset = 1 * inode_size
     mov ecx, 512
-    div ecx                          ; EAX = sector offset, EDX = byte offset in sector
+    div ecx                          ; EAX = sector offset, EDX = byte offset within sector
 
-    add eax, [ext4_inode_table_block]
+    add eax, [ext4_inode_table_lba]  ; absolute LBA of sector containing root inode
+    mov di, dx                       ; DI = byte offset within sector
     ; Read sector
     mov cx, 0x3000
     mov es, cx
@@ -164,7 +169,8 @@ ext4_load_file:
     jc .failed
 
     ; Read root inode block list / extent tree (starts at offset 40 of inode)
-    lea si, [es:bx + di + EXT4_INODE_BLOCKS] ; SI = pointer to extent tree in root inode
+    add di, EXT4_INODE_BLOCKS        ; DI = byte offset to extent tree within sector
+    lea si, [es:bx + di]             ; SI = pointer to extent tree in root inode
 
     ; Walk extent tree to find root directory blocks and scan for filename
     ; We assume root directory fits in 1 extent for simplicity
@@ -242,17 +248,18 @@ ext4_load_file:
     div ecx                          ; EAX = group, EDX = index inside group
 
     ; We assume group 0 for simplicity in this loader
-    ; LBA offset = inode_table_block + (index * inode_size) / 512
-    mov eax, edx                     ; EAX = index
+    ; Compute LBA = inode_table_lba + (index * inode_size) / 512
+    mov eax, edx                     ; EAX = index within group
     xor edx, edx
     mov dx, [ext4_inode_size]
     mul edx                          ; EAX = index * inode_size
+    xor edx, edx
     mov ecx, 512
     div ecx                          ; EAX = sector offset, EDX = byte offset in sector
 
-    add eax, [ext4_inode_table_block]
-    add eax, [ext4_part_lba]         ; absolute LBA of sector containing inode
+    add eax, [ext4_inode_table_lba]  ; absolute LBA of sector containing file inode
 
+    mov di, dx                       ; DI = byte offset within sector
     mov cx, 0x3000
     mov es, cx
     xor bx, bx
@@ -260,7 +267,8 @@ ext4_load_file:
     jc .failed
 
     ; Load extent tree of file inode
-    lea si, [es:bx + di + EXT4_INODE_BLOCKS] ; SI = pointer to extent tree in file inode
+    add di, EXT4_INODE_BLOCKS        ; DI = byte offset to extent tree
+    lea si, [es:bx + di]             ; SI = pointer to extent tree in file inode
 
     ; Walk extent tree to load file blocks to target destination
     cmp word [si + EXT4_EH_MAGIC], 0xF30A
@@ -312,6 +320,7 @@ ext4_sec_per_block:     dw 0
 ext4_inodes_per_group:  dd 0
 ext4_inode_size:        dw 0
 ext4_inode_table_block: dd 0
+ext4_inode_table_lba:   dd 0
 ext4_filename_ptr:      dw 0
 ext4_dest_offset:       dw 0
 ext4_dest_segment:      dw 0
