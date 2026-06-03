@@ -27,7 +27,8 @@ stage2/stage2.bin: stage2/entry.asm
 # Kernel
 $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm $(KERNEL_DIR)/entry/init.asm $(KERNEL_DIR)/entry/main.asm $(KERNEL_DIR)/drivers/serial/uart.asm $(KERNEL_DIR)/arch/x86_64/interrupts.asm $(KERNEL_DIR)/arch/x86_64/gdt.asm $(KERNEL_DIR)/arch/x86_64/cpu.asm \
                           $(KERNEL_DIR)/../lib/mem/mem.asm $(KERNEL_DIR)/../lib/mem/mem.inc $(KERNEL_DIR)/../lib/mem/phys/map.asm $(KERNEL_DIR)/../lib/mem/phys/bitmap.asm $(KERNEL_DIR)/../lib/mem/phys/phys.asm \
-                          $(KERNEL_DIR)/../lib/mem/ops/memcpy.asm $(KERNEL_DIR)/../lib/mem/ops/memset.asm $(KERNEL_DIR)/../lib/mem/ops/memzero.asm $(KERNEL_DIR)/../lib/mem/ops/memcmp.asm $(KERNEL_DIR)/../lib/mem/ops/memmove.asm
+                          $(KERNEL_DIR)/../lib/mem/ops/memcpy.asm $(KERNEL_DIR)/../lib/mem/ops/memset.asm $(KERNEL_DIR)/../lib/mem/ops/memzero.asm $(KERNEL_DIR)/../lib/mem/ops/memcmp.asm $(KERNEL_DIR)/../lib/mem/ops/memmove.asm \
+                          $(KERNEL_DIR)/../lib/mem/heap/bump.asm
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
 		-i $(KERNEL_DIR)/ -i $(KERNEL_DIR)/../ \
 		-o $(KERNEL_DIR)/kernel.bin
