@@ -20,6 +20,7 @@ extern phys_alloc_page
 extern virt_map
 extern virt_translate
 extern memcpy
+extern zero_page_addr
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -151,6 +152,81 @@ kernel_main:
     ; COW Test PASSED!
     mov rsi, msg_cow_test_passed
     call uart_print_str
+
+    ; 4. Run VMM Page Fault Zero-Fill-on-Demand (ZFOD) Test
+    mov rsi, msg_zfod_test_start
+    call uart_print_str
+
+    ; Step A: Create a VMA for the ZFOD virtual address space
+    ; start=0x50000000, size=8192 (2 pages), flags=VMA_READ|VMA_WRITE|VMA_ZFOD (0x23)
+    mov rdi, 0x50000000
+    mov rsi, 8192
+    mov rdx, 0x23                   ; VMA_READ | VMA_WRITE | VMA_ZFOD
+    call vma_create
+    test rax, rax
+    jz .zfod_fail_vma
+
+    ; Step B: Test the read path on page 1 (0x50000000)
+    ; Reading from it should return 0 since it is mapped to the shared zero page
+    mov rax, [0x50000000]
+    test rax, rax
+    jnz .zfod_fail_read_val
+
+    ; Let's verify that zero_page_addr has been initialized
+    mov rax, [zero_page_addr]
+    test rax, rax
+    jz .zfod_fail_zero_ptr
+
+    mov rsi, msg_zfod_read_ok
+    call uart_print_str
+
+    ; Step C: Write to page 1 to trigger COW on the shared zero page
+    mov rax, 0x123456789ABCDEF0
+    mov [0x50000000], rax
+
+    ; Step D: Verify the write succeeded on page 1
+    mov rax, [0x50000000]
+    mov rbx, 0x123456789ABCDEF0
+    cmp rax, rbx
+    jne .zfod_fail_write_val
+
+    ; Step E: Verify page isolation (shared zero page must still be all zeroes)
+    mov rcx, [zero_page_addr]
+    mov rax, [rcx]                  ; read from physical address (identity mapped)
+    test rax, rax
+    jnz .zfod_fail_isolation
+
+    ; Step F: Verify mapping isolation (0x50000000 maps to a private page, not the zero page)
+    mov rdi, 0x50000000
+    call virt_translate
+    mov rcx, [zero_page_addr]
+    cmp rax, rcx
+    je .zfod_fail_same_page
+
+    mov rsi, msg_zfod_page1_ok
+    call uart_print_str
+
+    ; Step G: Test direct write path on page 2 (0x50001000)
+    ; Accessing it directly via write should allocate a private zeroed page immediately
+    mov rax, 0xABCDEF0123456789
+    mov [0x50001000], rax
+
+    ; Step H: Verify the write succeeded on page 2
+    mov rax, [0x50001000]
+    mov rbx, 0xABCDEF0123456789
+    cmp rax, rbx
+    jne .zfod_fail_page2_val
+
+    ; Step I: Verify page 2 is not mapped to the shared zero page
+    mov rdi, 0x50001000
+    call virt_translate
+    mov rcx, [zero_page_addr]
+    cmp rax, rcx
+    je .zfod_fail_page2_same
+
+    ; ZFOD Test PASSED!
+    mov rsi, msg_zfod_test_passed
+    call uart_print_str
     jmp .idle
 
 .test_fail_vma:
@@ -190,6 +266,46 @@ kernel_main:
 
 .cow_fail_same_page:
     mov rsi, msg_cow_fail_same_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_vma:
+    mov rsi, msg_zfod_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_read_val:
+    mov rsi, msg_zfod_fail_read_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_zero_ptr:
+    mov rsi, msg_zfod_fail_ptr_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_write_val:
+    mov rsi, msg_zfod_fail_write_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_isolation:
+    mov rsi, msg_zfod_fail_iso_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_same_page:
+    mov rsi, msg_zfod_fail_same_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_page2_val:
+    mov rsi, msg_zfod_fail_p2val_str
+    call uart_print_str
+    jmp .panic
+
+.zfod_fail_page2_same:
+    mov rsi, msg_zfod_fail_p2same_str
     call uart_print_str
     jmp .panic
 
@@ -240,3 +356,17 @@ msg_cow_fail_vma_str:   db "Failure: Could not create COW VMA.", 0x0D, 0x0A, 0
 msg_cow_fail_map_str:   db "Failure: Could not map COW parent page.", 0x0D, 0x0A, 0
 msg_cow_fail_iso_str:   db "Failure: Isolation check failed! Parent or child data incorrect.", 0x0D, 0x0A, 0
 msg_cow_fail_same_str:  db "Failure: Virtual address still maps to parent physical page (no COW allocate).", 0x0D, 0x0A, 0
+
+msg_zfod_test_start:   db "Running VMM Zero-Fill-on-Demand (ZFOD) Exception Test...", 0x0D, 0x0A, 0
+msg_zfod_read_ok:     db "ZFOD Page 1 read verify (returned 0). Shared zero page successfully mapped.", 0x0D, 0x0A, 0
+msg_zfod_page1_ok:    db "ZFOD Page 1 write verify & isolation check passed.", 0x0D, 0x0A, 0
+msg_zfod_test_passed:  db "VMM Zero-Fill-on-Demand (ZFOD) Test PASSED!", 0x0D, 0x0A, 0
+
+msg_zfod_fail_vma_str:  db "Failure: Could not create ZFOD VMA.", 0x0D, 0x0A, 0
+msg_zfod_fail_read_str: db "Failure: Initial ZFOD read returned non-zero value.", 0x0D, 0x0A, 0
+msg_zfod_fail_ptr_str:  db "Failure: Shared zero page address pointer not initialized.", 0x0D, 0x0A, 0
+msg_zfod_fail_write_str: db "Failure: Value read back from ZFOD Page 1 after write is incorrect.", 0x0D, 0x0A, 0
+msg_zfod_fail_iso_str:   db "Failure: Shared zero page was modified by COW write!", 0x0D, 0x0A, 0
+msg_zfod_fail_same_str:  db "Failure: Page 1 still maps to shared zero page after write.", 0x0D, 0x0A, 0
+msg_zfod_fail_p2val_str: db "Failure: Value read back from ZFOD Page 2 after direct write is incorrect.", 0x0D, 0x0A, 0
+msg_zfod_fail_p2same_str: db "Failure: Page 2 maps to shared zero page after direct write.", 0x0D, 0x0A, 0
