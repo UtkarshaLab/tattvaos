@@ -136,6 +136,7 @@ stage2_entry:
 %include "fs.asm"
 %include "hw/acpi.asm"
 %include "hw/disk.asm"
+%include "hw/vbe.asm"
 %include "e820.asm"
 %include "gdt_load.asm"
 %include "gdt_verify.asm"
