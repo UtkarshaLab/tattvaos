@@ -90,6 +90,8 @@ stage2_main:
     call e820_parse                 ; find usable regions
     call e820_sort                  ; sort by base address
     call e820_merge                 ; merge overlapping entries
+    call hide_survive_page          ; hide/reserve 0x9000-0xA000 from E820 map
+    call e820_parse                 ; recalculate total usable memory after hiding
 
     ; print total usable RAM
     mov si, msg_ram
