@@ -86,10 +86,10 @@ uefi_handoff:
 .config_loop_end:
     mov [rbp - 40], rdi             ; save found ACPI RSDP pointer
 
-    ; 2. Zero out the 56-byte BootInfo structure at 0x7000
+    ; 2. Zero out the 72-byte BootInfo structure at 0x7000 (9 quadwords)
     cld                             ; Clear direction flag for rep stosq
     mov rdi, 0x7000
-    mov rcx, 7                      ; 7 * 8 = 56 bytes
+    mov rcx, 9                      ; 9 * 8 = 72 bytes
     xor rax, rax
     rep stosq
 
@@ -97,6 +97,18 @@ uefi_handoff:
     ; BOOT_INFO_E820_ADDR (0x7000) -> address of uefi_mem_map_buf
     lea rax, [uefi_mem_map_buf]
     mov [0x7000], rax
+
+    ; BOOT_INFO_INITRD_ADDR (0x7038) and BOOT_INFO_INITRD_SIZE (0x7040)
+    mov rax, [rel uefi_initrd_size]
+    test rax, rax
+    jz .no_uefi_initrd
+    mov qword [0x7038], 0x2000000   ; address = 32MB mark
+    mov [0x7040], rax               ; size
+    jmp .uefi_initrd_done
+.no_uefi_initrd:
+    mov qword [0x7038], 0
+    mov qword [0x7040], 0
+.uefi_initrd_done:
 
     ; BOOT_INFO_E820_COUNT (0x7008) -> count = uefi_map_size / uefi_desc_size
     xor rdx, rdx
