@@ -111,7 +111,22 @@ kernel_init:
 ; -----------------------------------------------------------------------------
 mm_init:
     call phys_init
+
+    ; Allocate 1024 pages (4MB) for kernel early bump heap
+    mov rdi, 1024
+    call phys_alloc_pages
+    test rax, rax
+    jz .error
+
+    mov rdi, rax
+    mov rsi, 1024 * 4096            ; 4MB size
+    call heap_init
     ret
+
+.error:
+    cli
+    hlt
+    jmp .error
 
 sched_init:
     ; TODO: Implement task scheduler
