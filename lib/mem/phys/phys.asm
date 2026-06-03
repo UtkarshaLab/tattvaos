@@ -134,6 +134,66 @@ phys_init:
     cld
     rep stosb                       ; fill the bitmap
 
+    ; 7. Re-scan E820 map and clear bits for usable RAM regions (Subfeature 1.3)
+    mov rdi, [boot_info_ptr]
+    mov rsi, [rdi + 0]              ; rsi = E820 map pointer
+    mov rdx, [rdi + 8]              ; rdx = entry count
+    xor r8, r8                      ; r8 = index loop
+
+.clear_loop:
+    cmp r8, rdx
+    jge .clear_done
+
+    mov r9, r8
+    imul r9, 24
+    add r9, rsi                     ; r9 = e820_entry pointer
+
+    mov r10d, [r9 + e820_entry.type]
+    cmp r10d, 1                      ; type == 1 (usable)?
+    jne .next_clear
+
+    mov r10, [r9 + e820_entry.base]
+    mov r11, [r9 + e820_entry.length]
+
+    ; Calculate start page index = base / 4096 (shr 12)
+    mov rbx, r10
+    shr rbx, 12                     ; rbx = start page index
+
+    ; Calculate page count = length / 4096 (shr 12)
+    mov rcx, r11
+    shr rcx, 12                     ; rcx = page count
+
+.clear_page_loop:
+    test rcx, rcx
+    jz .next_clear
+
+    ; Clear bit for page index rbx
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push r8
+    push r9
+    
+    mov rdi, rbx
+    call bitmap_clear_bit
+    
+    pop r9
+    pop r8
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+
+    inc rbx                         ; next page
+    dec rcx
+    jmp .clear_page_loop
+
+.next_clear:
+    inc r8
+    jmp .clear_loop
+
+.clear_done:
     pop r10
     pop r9
     pop r8
