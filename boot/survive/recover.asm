@@ -16,14 +16,6 @@
 
 [BITS 64]
 
-global survive_recover
-extern fs_load_kernel
-extern kernel_load
-extern gdt_descriptor
-extern boot_drive
-extern sectors_per_track
-extern number_of_heads
-
 ; =============================================================================
 ; survive_recover — main recovery entry point (called in 64-bit mode)
 ; =============================================================================
