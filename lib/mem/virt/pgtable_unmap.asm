@@ -2,7 +2,8 @@
 ; Tattva OS — lib/mem/virt/pgtable_unmap.asm
 ; =============================================================================
 ; Virtual memory page unmapping API with empty table reclamation (3.2)
-; and recycling pool integration (3.3).
+; and recycling pool integration (3.3). Protected by per-PML4
+; spinlocks (3.4) for concurrent safety on multi-core systems.
 ; After clearing the leaf PTE, walks back up the hierarchy and reclaims
 ; any page table that has become completely empty, recycling them into
 ; the pgtable_cache pool for instant reuse.
@@ -36,6 +37,10 @@ virt_unmap:
 
     mov r12, rdi
     and r12, -4096                  ; R12 = page-aligned virtual address
+
+    ; Acquire per-PML4 spinlock for this virtual address (3.4)
+    mov rdi, r12
+    call pgtable_lock_acquire
 
     ; Load CR3 as the root page table base
     mov rax, cr3
@@ -188,6 +193,10 @@ virt_unmap:
     jmp .done
 
 .done:
+    ; Release per-PML4 spinlock (3.4)
+    mov rdi, r12
+    call pgtable_lock_release
+
     pop rbp
     pop r15
     pop r14
