@@ -77,7 +77,10 @@ page_fault_isr:
     ; The error code is at: RSP + 120 (since we pushed 15 registers * 8 bytes = 120 bytes)
     mov rsi, [rsp + 120]            ; RSI = error code (arg 2)
 
-    ; 3. Call high-level handler
+    ; 3. Read original RSP (stack pointer at exception entry)
+    mov rdx, [rsp + 152]            ; RDX = original RSP (arg 3)
+
+    ; 4. Call high-level handler
     call virt_page_fault_handler    ; RAX = 1 if handled, 0 if unhandled
 
     test rax, rax
@@ -140,9 +143,11 @@ virt_page_fault_handler:
     push rbx
     push r12
     push r13
+    push r14
 
     mov r12, rdi                    ; R12 = vaddr
     mov r13, rsi                    ; R13 = error_code
+    mov r14, rdx                    ; R14 = original RSP
 
     ; 1. Find VMA containing the address
     mov rdi, r12
@@ -165,7 +170,11 @@ virt_page_fault_handler:
     test rbx, VMA_ZFOD
     jnz .zfod_path
 
-    jmp .do_diagnostics              ; not on-demand or ZFOD VMA -> panic
+    ; Check if Stack VMA
+    test rbx, VMA_STACK
+    jnz .stack_grow_path
+
+    jmp .do_diagnostics              ; not on-demand, ZFOD, or Stack VMA -> panic
 
 .on_demand_path:
     ; Call handler for on-demand paging
@@ -184,6 +193,18 @@ virt_page_fault_handler:
     mov rsi, rax                    ; VMA pointer
     mov rdx, r13                    ; error code
     call virt_handle_zfod
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
+
+.stack_grow_path:
+    ; Call handler for Stack Auto-Grow
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    mov rdx, r14                    ; original RSP
+    call virt_handle_stack_grow
     test rax, rax
     jz .do_diagnostics              ; failed -> panic
 
@@ -301,6 +322,7 @@ virt_page_fault_handler:
     xor rax, rax
 
 .exit:
+    pop r14
     pop r13
     pop r12
     pop rbx
@@ -610,6 +632,84 @@ virt_handle_zfod:
 .map_fail:
     mov rdi, r15
     call phys_free_page
+.fail:
+    xor rax, rax                    ; failure
+
+.exit:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; virt_handle_stack_grow — grows the stack by allocating a page
+; Input:
+;   RDI = faulting virtual address
+;   RSI = VMA pointer
+;   RDX = original RSP
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM/out of bounds)
+; -----------------------------------------------------------------------------
+global virt_handle_stack_grow
+virt_handle_stack_grow:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; R12 = virtual address
+    mov r13, rsi                    ; R13 = VMA pointer
+    mov r14, rdx                    ; R14 = original RSP
+
+    ; Check if within bounds: addr >= original_RSP - 4096 (allow 4KB stack allocation gap)
+    mov rax, r14
+    sub rax, 4096
+    cmp r12, rax
+    jb .fail_bounds
+
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov r15, rax                    ; R15 = new physical page
+
+    ; 2. Zero-out the new page
+    mov rdi, r15
+    mov rsi, 4096
+    call memzero
+
+    ; 3. Map the page with VMA permissions (enforcing NX since it's stack, PAGE_WRITABLE since stack)
+    mov rdx, [r13 + 16]             ; RDX = vma->flags
+    xor rbx, rbx                    ; RBX = mapping flags
+    or rbx, PAGE_WRITABLE           ; stack must be writable
+
+    test rdx, VMA_USER
+    jz .no_user
+    or rbx, PAGE_USER
+.no_user:
+
+    ; Always set PAGE_NX for stack safety (Subfeature 16.4)
+    mov rcx, PAGE_NX
+    or rbx, rcx
+
+    mov rdi, r12
+    and rdi, -4096                  ; align virtual address to page
+    mov rsi, r15                    ; physical address
+    mov rdx, rbx                    ; flags
+    call virt_map
+    test rax, rax
+    jz .map_fail
+
+    mov rax, 1                      ; success
+    jmp .exit
+
+.map_fail:
+    mov rdi, r15
+    call phys_free_page
+.fail_bounds:
 .fail:
     xor rax, rax                    ; failure
 
