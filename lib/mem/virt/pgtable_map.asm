@@ -205,6 +205,21 @@ virt_map:
     ret
 
 ; -----------------------------------------------------------------------------
+; virt_map_global — maps a 4KB virtual page to a physical frame with PAGE_GLOBAL set
+; Input:
+;   RDI = virtual address (should be 4KB page aligned)
+;   RSI = physical address (should be 4KB page aligned)
+;   RDX = mapping flags (e.g. PAGE_WRITABLE, PAGE_USER, PAGE_NX)
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM during table allocation)
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
+; -----------------------------------------------------------------------------
+global virt_map_global
+virt_map_global:
+    or rdx, PAGE_GLOBAL
+    jmp virt_map
+
+; -----------------------------------------------------------------------------
 ; ._alloc_zeroed_table — allocates a zeroed 4KB page for a page table
 ; Tries the recycling pool first (O(1), no locks), then falls back to
 ; phys_alloc_page + memzero.
