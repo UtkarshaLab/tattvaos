@@ -36,6 +36,21 @@ section .text
     shr rdx, 32                     ; high 32 bits (EDX:EAX)
     wrmsr
 
+    ; 4b. Enforce CPU Control Register Policies
+    ; Enable Write Protect (WP) in CR0
+    mov rax, cr0
+    or rax, 1 << 16                 ; set WP bit
+    mov cr0, rax
+
+    ; Enable Page Global Enable (PGE) in CR4
+    mov rax, cr4
+    or rax, 1 << 7                  ; set PGE bit
+    mov cr4, rax
+
+    ; 4c. Initialize FPU/SSE/AVX Math State
+    fninit                          ; reset FPU
+    ldmxcsr [default_mxcsr]         ; load default control register state
+
     ; 5. Restore BootInfo pointer and jump to early initialization
     pop rdi
     jmp kernel_init
@@ -44,6 +59,9 @@ section .text
 ; CPU-local Data Structures
 ; -----------------------------------------------------------------------------
 section .data
+align 8
+default_mxcsr:  dd 0x1F80           ; safe default MXCSR (masks exceptions, round-to-nearest)
+
 align 8
 bsp_cpu_local:
     .self        dq bsp_cpu_local   ; pointer to self (standard GS self-reference)
