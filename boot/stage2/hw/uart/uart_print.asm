@@ -27,6 +27,7 @@
 uart_print:
     push ax
     push si
+    cld                             ; Clear direction flag for lodsb
 
 .loop:
     lodsb                           ; load byte at [SI], advance SI
@@ -154,6 +155,7 @@ uart_putc_64:
 uart_print_64:
     push rax
     push rsi
+    cld                             ; Clear direction flag for lodsb
 
 .loop:
     lodsb                           ; load byte from [RSI] into AL, advance RSI
