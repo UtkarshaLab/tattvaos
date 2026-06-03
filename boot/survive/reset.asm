@@ -14,8 +14,6 @@
 
 [BITS 64]
 
-global survive_reset
-
 ; =============================================================================
 ; survive_reset — hardware reboot
 ; Input:  none
