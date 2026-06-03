@@ -87,6 +87,7 @@ uefi_handoff:
     mov [rbp - 40], rdi             ; save found ACPI RSDP pointer
 
     ; 2. Zero out the 56-byte BootInfo structure at 0x7000
+    cld                             ; Clear direction flag for rep stosq
     mov rdi, 0x7000
     mov rcx, 7                      ; 7 * 8 = 56 bytes
     xor rax, rax
