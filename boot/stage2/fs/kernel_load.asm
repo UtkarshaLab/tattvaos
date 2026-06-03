@@ -24,6 +24,7 @@ kernel_load:
     push rsi
     push rdi
     push rcx
+    cld                             ; Clear direction flag for rep movsq
 
     ; Source: KERNEL_TEMP loaded by BIOS int 0x13 in real mode
     mov rsi, KERNEL_TEMP            ; source: 0x20000 (KERNEL_TEMP)
