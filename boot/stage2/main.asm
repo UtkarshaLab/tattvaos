@@ -92,6 +92,7 @@ stage2_main:
     mov al, '1'
     call uart_putc
     call e820_detect                ; fills table at E820_DEST
+    call e820_print                 ; debug print map
 
     mov al, '2'
     call uart_putc
@@ -112,6 +113,7 @@ stage2_main:
     mov al, '6'
     call uart_putc
     call e820_parse                 ; recalculate total usable memory after hiding
+    call e820_print                 ; debug print final map
 
     mov al, '7'
     call uart_putc
