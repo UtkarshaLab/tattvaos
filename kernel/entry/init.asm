@@ -50,6 +50,18 @@ kernel_init:
     mov rsi, msg_crlf
     call uart_print_str
 
+    ; 5a. Test CPU-local GS Segment Accessors
+    mov rsi, msg_gs_api_test
+    call uart_print_str
+    call cpu_get_id                 ; EAX = cpu_id
+    call uart_print_dec
+    mov al, '/'                     ; separator
+    call uart_putc
+    call cpu_get_stack_top          ; RAX = stack_top
+    call uart_print_hex64
+    mov rsi, msg_crlf
+    call uart_print_str
+
     ; 5b. Verify CPU hardware features (SSE3, AVX, AVX2, FMA)
     mov rsi, msg_init_cpu
     call uart_print_str
@@ -126,6 +138,7 @@ msg_kernel_boot:     db "Tattva Kernel Booting...", 0x0D, 0x0A, 0
 msg_init_gdt:        db "Initializing Kernel GDT/TSS... ", 0
 msg_boot_info_loc:   db "BootInfo Pointer: ", 0
 msg_gs_base_loc:     db "GS Base register: ", 0
+msg_gs_api_test:     db "GS Accessor Test (CPU/Stack): ", 0
 msg_init_cpu:        db "Verifying CPU hardware features... ", 0
 msg_init_idt:        db "Initializing Exception Handlers (IDT)... ", 0
 msg_init_mm:         db "Initializing MM (Physical Allocator)... ", 0
