@@ -219,6 +219,17 @@ virt_map:
     ; Flush TLB for this virtual address
     invlpg [r12]
 
+    ; Hook: Add page to active list if PAGE_USER is set and PAGE_GLOBAL is clear
+    test r14, PAGE_USER
+    jz .skip_tracking
+    test r14, PAGE_GLOBAL
+    jnz .skip_tracking
+
+    mov rdi, r13                    ; physical address
+    mov rsi, r12                    ; virtual address
+    call page_list_add_active
+
+.skip_tracking:
     mov rax, 1                      ; return 1 (success)
     jmp .unlock_exit
 
