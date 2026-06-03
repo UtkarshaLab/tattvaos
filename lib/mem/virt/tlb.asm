@@ -170,4 +170,107 @@ virt_mark_global_range:
     pop rbx
     ret
 
+; -----------------------------------------------------------------------------
+; tlb_pcid_supported — checks if PCID is supported by the CPU
+; Input:  none
+; Output: RAX = 1 if supported, 0 otherwise
+; Clobbers: RAX, RBX, RCX, RDX
+; -----------------------------------------------------------------------------
+global tlb_pcid_supported
+tlb_pcid_supported:
+    mov eax, 1
+    cpuid
+    test ecx, 1 << 17
+    jz .no
+    mov rax, 1
+    ret
+.no:
+    xor rax, rax
+    ret
+
+; -----------------------------------------------------------------------------
+; tlb_pcid_enable — enables PCID on the current core (if supported)
+; Input:  none
+; Output: RAX = 1 on success, 0 on failure (not supported)
+; Clobbers: RAX, RBX, RCX, RDX
+; -----------------------------------------------------------------------------
+global tlb_pcid_enable
+tlb_pcid_enable:
+    call tlb_pcid_supported
+    test rax, rax
+    jz .failed
+    
+    mov rax, cr4
+    or rax, 1 << 17             ; set PCIDE
+    mov cr4, rax
+    mov rax, 1
+    ret
+.failed:
+    xor rax, rax
+    ret
+
+; -----------------------------------------------------------------------------
+; tlb_pcid_get — gets the current PCID from CR3
+; Input:  none
+; Output: RAX = current PCID (0 - 4095)
+; Clobbers: none (preserves all registers except RAX)
+; -----------------------------------------------------------------------------
+global tlb_pcid_get
+tlb_pcid_get:
+    mov rax, cr3
+    and rax, 0xFFF              ; PCID is in bits 0-11
+    ret
+
+; -----------------------------------------------------------------------------
+; tlb_pcid_set — sets the current PCID in CR3
+; Input:
+;   RDI = target PCID (0 - 4095)
+;   RSI = preserve flag (1 = keep TLB entries, 0 = flush TLB entries)
+; Output: none
+; Clobbers: RAX, RCX
+; -----------------------------------------------------------------------------
+global tlb_pcid_set
+tlb_pcid_set:
+    mov rax, cr3
+    mov rcx, 0xFFFFFFFFFFFFF000 ; mask out current PCID and preserve bit (63)
+    and rax, rcx                ; RAX = PML4 base physical address
+    
+    and rdi, 0xFFF              ; enforce 12-bit PCID range
+    or rax, rdi                 ; set PCID in bits 0-11
+    
+    test rsi, rsi
+    jz .write
+    
+    ; Set bit 63 (no-preserve flag)
+    mov rcx, 1
+    shl rcx, 63
+    or rax, rcx
+    
+.write:
+    mov cr3, rax
+    ret
+
+; -----------------------------------------------------------------------------
+; tlb_invpcid — invalidates TLB entries using the INVPCID instruction
+; Input:
+;   RDI = invalidation type (0: individual, 1: single PCID, 2: all, 3: all including global)
+;   RSI = pointer to 128-bit INVPCID descriptor
+; Output: RAX = 1 on success, 0 on failure (INVPCID not supported)
+; Clobbers: RAX, RBX, RCX, RDX
+; -----------------------------------------------------------------------------
+global tlb_invpcid
+tlb_invpcid:
+    mov eax, 7
+    xor ecx, ecx
+    cpuid
+    test ebx, 1 << 10           ; Check INVPCID support (EBX bit 10)
+    jz .no_invpcid
+    
+    invpcid rdi, [rsi]
+    mov rax, 1
+    ret
+.no_invpcid:
+    xor rax, rax
+    ret
+
 %endif ; LIB_MEM_VIRT_TLB_ASM
