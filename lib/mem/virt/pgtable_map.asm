@@ -220,6 +220,175 @@ virt_map_global:
     jmp virt_map
 
 ; -----------------------------------------------------------------------------
+; virt_map_huge_2mb — maps a 2MB huge page in the virtual address space
+; Input:
+;   RDI = virtual address (should be 2MB aligned)
+;   RSI = physical address (should be 2MB aligned)
+;   RDX = mapping flags (e.g. PAGE_WRITABLE, PAGE_USER, PAGE_NX, PAGE_GLOBAL)
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM during table allocation)
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
+; -----------------------------------------------------------------------------
+global virt_map_huge_2mb
+virt_map_huge_2mb:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    ; Align addresses to 2MB boundaries
+    mov r12, rdi
+    and r12, -0x200000              ; R12 = aligned virtual address
+    mov r13, rsi
+    and r13, -0x200000              ; R13 = aligned physical address
+    
+    mov r14, rdx                    ; R14 = flags
+    or r14, PAGE_PRESENT | PAGE_HUGE ; always present + huge page bit
+
+    ; Acquire per-PML4 spinlock
+    mov rdi, r12
+    call pgtable_lock_acquire
+
+    ; Load CR3
+    mov rax, cr3
+    and rax, 0xFFFFFFFFFFFFF000     ; RAX = root physical base
+
+    ; Check 5-level paging
+    mov rcx, cr4
+    test rcx, (1 << 12)
+    jz .do_pml4
+
+    ; PML5
+    mov rcx, r12
+    shr rcx, 48
+    and rcx, 0x1FF
+    mov rbx, [rax + rcx * 8]
+    test rbx, PAGE_PRESENT
+    jnz .have_pml4
+    
+    push rax
+    push rcx
+    call ._alloc_zeroed_table
+    pop rcx
+    pop rdx
+    test rax, rax
+    jz .oom
+    
+    mov rbx, rax
+    or rbx, (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
+    mov [rdx + rcx * 8], rbx
+
+.have_pml4:
+    and rbx, 0xFFFFFFFFFFFFF000
+    mov rax, rbx
+
+.do_pml4:
+    ; PML4
+    mov rcx, r12
+    shr rcx, 39
+    and rcx, 0x1FF
+    mov rbx, [rax + rcx * 8]
+    test rbx, PAGE_PRESENT
+    jnz .have_pdpt
+
+    push rax
+    push rcx
+    call ._alloc_zeroed_table
+    pop rcx
+    pop rdx
+    test rax, rax
+    jz .oom
+
+    mov rbx, rax
+    or rbx, (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
+    mov [rdx + rcx * 8], rbx
+
+.have_pdpt:
+    and rbx, 0xFFFFFFFFFFFFF000
+    mov rax, rbx
+
+    ; PDPT
+    mov rcx, r12
+    shr rcx, 30
+    and rcx, 0x1FF
+    mov rbx, [rax + rcx * 8]
+    test rbx, PAGE_PRESENT
+    jnz .have_pd
+
+    push rax
+    push rcx
+    call ._alloc_zeroed_table
+    pop rcx
+    pop rdx
+    test rax, rax
+    jz .oom
+
+    mov rbx, rax
+    or rbx, (PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER)
+    mov [rdx + rcx * 8], rbx
+
+.have_pd:
+    and rbx, 0xFFFFFFFFFFFFF000
+    mov rax, rbx                    ; RAX = PD physical address
+
+    ; PD entry (PDE) index
+    mov rcx, r12
+    shr rcx, 21
+    and rcx, 0x1FF                  ; RCX = PD index
+
+    ; Check if an entry is already present
+    mov rdx, [rax + rcx * 8]
+    test rdx, PAGE_PRESENT
+    jz .write_pde
+
+    ; It is present. Check if it points to a sub-page table (not a huge page)
+    test rdx, PAGE_HUGE
+    jnz .write_pde                  ; if it was already huge, just overwrite
+
+    ; It was a page table pointer. Recycle it to prevent memory leaks!
+    and rdx, 0xFFFFFFFFFFFFF000     ; RDX = PT physical address
+    
+    push rax
+    push rcx
+    mov rdi, rdx
+    call pgtable_cache_free
+    test rax, rax
+    jnz .recycle_done
+    call phys_free_page
+.recycle_done:
+    pop rcx
+    pop rax
+
+.write_pde:
+    ; Set PD entry (PDE) with physical address and flags
+    mov rdx, r13
+    or rdx, r14                     ; RDX = phys_base | flags
+    mov [rax + rcx * 8], rdx
+
+    ; Flush TLB
+    invlpg [r12]
+
+    mov rax, 1                      ; return 1 (success)
+    jmp .unlock_exit
+
+.oom:
+    xor rax, rax                    ; return 0 (OOM)
+
+.unlock_exit:
+    push rax
+    mov rdi, r12
+    call pgtable_lock_release
+    pop rax
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
 ; ._alloc_zeroed_table — allocates a zeroed 4KB page for a page table
 ; Tries the recycling pool first (O(1), no locks), then falls back to
 ; phys_alloc_page + memzero.
