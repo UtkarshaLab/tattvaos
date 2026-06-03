@@ -194,6 +194,111 @@ phys_init:
     jmp .clear_loop
 
 .clear_done:
+    ; 8. Protect low 1MB memory region (0x0 to 0x100000) (Subfeature 1.4)
+    ; 1MB / 4096 = 256 pages. Set the first 256 bits in the bitmap to 1.
+    xor rbx, rbx                    ; rbx = start page index = 0
+    mov rcx, 256                    ; rcx = 256 pages (1MB)
+
+.reserve_low_loop:
+    test rcx, rcx
+    jz .reserve_low_done
+
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    
+    mov rdi, rbx
+    call bitmap_set_bit
+    
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+
+    inc rbx
+    dec rcx
+    jmp .reserve_low_loop
+
+.reserve_low_done:
+    ; -----------------------------------------------------------------------------
+    ; 9. Protect Kernel Code & Data (Subfeature 1.5)
+    ; Mark all pages from 1MB (0x100000) to kernel_end as reserved.
+    ; -----------------------------------------------------------------------------
+    mov rax, kernel_end
+    add rax, 4095
+    shr rax, 12                     ; RAX = kernel_end page index (exclusive)
+    mov rbx, 256                    ; start page index = 256 (1MB)
+
+.reserve_kernel_loop:
+    cmp rbx, rax
+    jae .reserve_kernel_done
+
+    push rax
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    
+    mov rdi, rbx
+    call bitmap_set_bit
+    
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rax
+
+    inc rbx
+    jmp .reserve_kernel_loop
+
+.reserve_kernel_done:
+
+    ; -----------------------------------------------------------------------------
+    ; 10. Protect Page Bitmap Self-Memory (Subfeature 1.6)
+    ; Mark all pages from bitmap_addr to bitmap_addr + bitmap_size as reserved.
+    ; -----------------------------------------------------------------------------
+    mov rbx, [phys_state + phys_state_t.bitmap_addr]
+    mov rcx, [phys_state + phys_state_t.bitmap_size]
+    
+    ; Convert base to page index
+    shr rbx, 12                     ; rbx = start page index
+    
+    ; Calculate end page index
+    mov rax, [phys_state + phys_state_t.bitmap_addr]
+    add rax, rcx                    ; rax = end address of bitmap
+    add rax, 4095
+    shr rax, 12                     ; rax = end page index (exclusive)
+
+.reserve_bitmap_loop:
+    cmp rbx, rax
+    jae .reserve_bitmap_done
+
+    push rax
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    
+    mov rdi, rbx
+    call bitmap_set_bit
+    
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rax
+
+    inc rbx
+    jmp .reserve_bitmap_loop
+
+.reserve_bitmap_done:
     pop r10
     pop r9
     pop r8
@@ -209,6 +314,225 @@ phys_init:
     cli
     hlt
     jmp .error_halt
+
+; -----------------------------------------------------------------------------
+; phys_alloc_page — allocates a single 4KB physical page
+; Input:  none
+; Output: RAX = physical address of the allocated page, or 0 if OOM
+; Clobbers: none (preserves all registers except RAX)
+; -----------------------------------------------------------------------------
+global phys_alloc_page
+phys_alloc_page:
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    ; Find 1 free page
+    mov rdi, 1
+    call bitmap_find_free
+    cmp rax, -1
+    je .oom
+
+    ; Save the page index in RDI
+    mov rdi, rax
+
+    ; Set the bit to 1
+    call bitmap_set_bit
+
+    ; Decrement free_pages count
+    dec qword [phys_state + phys_state_t.free_pages]
+
+    ; Calculate physical address: page_index * 4096 (shl 12)
+    mov rax, rdi
+    shl rax, 12
+    jmp .done
+
+.oom:
+    xor rax, rax                    ; return 0 on OOM
+
+.done:
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; phys_free_page — frees a single 4KB physical page
+; Input:  RDI = physical address of the page to free
+; Output: none
+; Clobbers: none (preserves all registers)
+; -----------------------------------------------------------------------------
+global phys_free_page
+phys_free_page:
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    ; Calculate page index: address / 4096
+    mov rax, rdi
+    shr rax, 12
+    mov rdi, rax
+
+    ; Clear the bit
+    call bitmap_clear_bit
+
+    ; Increment free_pages count
+    inc qword [phys_state + phys_state_t.free_pages]
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    ret
+
+; -----------------------------------------------------------------------------
+; phys_alloc_pages — allocates N contiguous 4KB physical pages
+; Input:  RDI = page count (N)
+; Output: RAX = physical address of the start of the allocated region, or 0 if OOM
+; Clobbers: none (preserves all registers except RAX)
+; -----------------------------------------------------------------------------
+global phys_alloc_pages
+phys_alloc_pages:
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    ; Save count in R8
+    mov r8, rdi
+
+    ; Find R8 contiguous free pages
+    call bitmap_find_free
+    cmp rax, -1
+    je .oom
+
+    ; Save start page index in R9
+    mov r9, rax
+
+    ; Loop to set bits from R9 to R9 + R8 - 1
+    mov rsi, r9                     ; current page index
+    mov rcx, r8                     ; loop counter
+.set_loop:
+    test rcx, rcx
+    jz .set_done
+    
+    mov rdi, rsi
+    call bitmap_set_bit
+    
+    inc rsi
+    dec rcx
+    jmp .set_loop
+
+.set_done:
+    ; Update free_pages count
+    sub [phys_state + phys_state_t.free_pages], r8
+
+    ; Calculate physical address: start_page_index * 4096
+    mov rax, r9
+    shl rax, 12
+    jmp .done
+
+.oom:
+    xor rax, rax                    ; return 0 on OOM
+
+.done:
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; phys_free_pages — frees N contiguous 4KB physical pages
+; Input:  RDI = starting physical address
+;         RSI = page count (N)
+; Output: none
+; Clobbers: none (preserves all registers)
+; -----------------------------------------------------------------------------
+global phys_free_pages
+phys_free_pages:
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    ; Save count in R8 and start address in R9
+    mov r8, rsi
+    mov r9, rdi
+
+    ; Calculate start page index: address / 4096
+    shr r9, 12                      ; R9 = start page index
+
+    ; Loop to clear bits from R9 to R9 + R8 - 1
+    mov rsi, r9                     ; current page index
+    mov rcx, r8                     ; loop counter
+.clear_loop:
+    test rcx, rcx
+    jz .clear_done
+    
+    mov rdi, rsi
+    call bitmap_clear_bit
+    
+    inc rsi
+    dec rcx
+    jmp .clear_loop
+
+.clear_done:
+    ; Update free_pages count
+    add [phys_state + phys_state_t.free_pages], r8
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; Physical State and Error Messages
