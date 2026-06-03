@@ -350,7 +350,26 @@ virt_map_huge_2mb:
     and rcx, 0x1FF
     mov rbx, [rax + rcx * 8]
     test rbx, PAGE_PRESENT
-    jnz .have_pd
+    jz .create_pd
+
+    test rbx, PAGE_HUGE
+    jz .have_pd
+
+    ; It is a 1GB super page! Split it first.
+    push rax
+    push rcx
+    mov rdi, r12
+    mov rsi, rax
+    call virt_split_super_1gb
+    pop rcx
+    pop rax
+    test rax, rax
+    jz .oom
+
+    mov rbx, [rax + rcx * 8]         ; re-load split entry (now points to PD)
+    jmp .have_pd
+
+.create_pd:
 
     push rax
     push rcx
