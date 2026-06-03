@@ -17,10 +17,10 @@
 ; SimpleFileSystem offsets
 SFS_OPEN_VOLUME             equ 8       ; OpenVolume member pointer
 
-; File Protocol offsets
-FILE_OPEN                   equ 0       ; Open member pointer
-FILE_CLOSE                  equ 8       ; Close member pointer
-FILE_READ                   equ 16      ; Read member pointer
+; File Protocol offsets (accounting for 8-byte Revision prefix)
+FILE_OPEN                   equ 8       ; Open member pointer
+FILE_CLOSE                  equ 16      ; Close member pointer
+FILE_READ                   equ 32      ; Read member pointer
 
 ; File Open modes
 FILE_MODE_READ              equ 0x0000000000000001
@@ -50,7 +50,7 @@ uefi_file_load:
     mov rax, [r9 + BS_LOCATE_PROTOCOL]
     call rax
     test rax, rax
-    jnz .failed
+    jnz .failed_no_close
 
     ; 2. Open Root Volume
     mov rcx, [rbp - 24]             ; RCX = SFS interface
@@ -58,7 +58,7 @@ uefi_file_load:
     mov rax, [rcx + SFS_OPEN_VOLUME]
     call rax
     test rax, rax
-    jnz .failed
+    jnz .failed_no_close
 
     ; 3. Open file
     mov rcx, [rbp - 32]             ; RCX = root_handle
@@ -69,27 +69,41 @@ uefi_file_load:
     mov rax, [rcx + FILE_OPEN]
     call rax
     test rax, rax
-    jnz .failed
+    jnz .failed_close_root
 
     ; 4. Read File directly into target buffer
-    mov qword [rbp - 48], 65536     ; limit size read to 64KB
+    mov qword [rbp - 48], 1048576   ; limit size read to 1MB
     mov rcx, [rbp - 40]             ; RCX = file_handle
     lea rdx, [rbp - 48]             ; RDX = &read_size
     mov r8, [rbp - 8]               ; R8 = target destination buffer
     mov rax, [rcx + FILE_READ]
     call rax
     test rax, rax
-    jnz .failed
+    jnz .failed_close_all
 
-    ; 5. Close File Handle
+    ; Success path: close both file and root handles
     mov rcx, [rbp - 40]             ; RCX = file_handle
+    mov rax, [rcx + FILE_CLOSE]
+    call rax
+
+    mov rcx, [rbp - 32]             ; RCX = root_handle
     mov rax, [rcx + FILE_CLOSE]
     call rax
 
     mov rax, [rbp - 48]             ; return actual file size read in RAX
     jmp .done
 
-.failed:
+.failed_close_all:
+    mov rcx, [rbp - 40]             ; RCX = file_handle
+    mov rax, [rcx + FILE_CLOSE]
+    call rax
+
+.failed_close_root:
+    mov rcx, [rbp - 32]             ; RCX = root_handle
+    mov rax, [rcx + FILE_CLOSE]
+    call rax
+
+.failed_no_close:
     xor rax, rax
 
 .done:
