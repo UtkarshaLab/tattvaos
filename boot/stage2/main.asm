@@ -81,7 +81,7 @@ stage2_main:
 .cpu_done:
 
     ; Initialize secondary cores (SMP AP Bootstrap)
-    call smp_init_cores
+    ; call smp_init_cores
 
     ; -------------------------------------------------------------------------
     ; STEP 3: Detect memory map (E820)
