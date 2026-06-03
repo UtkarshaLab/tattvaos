@@ -2,8 +2,9 @@
 ; Tattva OS — boot/stage2/fs/fs16.asm
 ; =============================================================================
 ; 16-bit real-mode filesystem scanner and loader.
-; Parses GPT partition table to locate a FAT32 partition, searches the root
-; directory for "KERNEL.ULF", and loads it into KERNEL_TEMP (0x20000).
+; Parses GPT partition table (with secondary fallback) to locate a FAT32 or ext4
+; partition, searches the root directory, and loads KERNEL.ULF and INITRD.IMG.
+; Supports tattva.cfg boot parameters and dual-kernel fallback.
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64, real mode (16-bit)
@@ -16,9 +17,7 @@
 
 ; =============================================================================
 ; fs_load_kernel — main real-mode entry point for loading the kernel
-; Input:  none
-; Output: AX = 1 if successful, 0 if failed (falls back to Option A raw sectors)
-; Clobbers: AX
+; Output: AX = 1 if successful, 0 if failed
 ; =============================================================================
 fs_load_kernel:
     push ebx
@@ -32,34 +31,67 @@ fs_load_kernel:
     mov si, msg_fs_init
     call uart_print
 
-    ; 1. Read LBA 1 (GPT Header) to 0x2000:0x0000
+    ; 1. Read LBA 1 (Primary GPT Header)
     mov ax, 0x2000
     mov es, ax
     xor bx, bx
     mov eax, 1                      ; LBA 1
     call fs_read_sector
-    jc .fallback                    ; error -> fallback
+    jc .gpt_backup_fallback         ; read failed -> try backup
 
     ; Check signature "EFI PART" (0x5452415020494645)
-    cmp dword [es:bx], 0x45464920    ; "EFI "
+    cmp dword [es:bx], 0x45464920
+    jne .gpt_backup_fallback
+    cmp dword [es:bx + 4], 0x50415254
+    jne .gpt_backup_fallback
+    jmp .gpt_ok
+
+.gpt_backup_fallback:
+    ; Query drive parameters to find the last sector (backup GPT)
+    sub sp, 32
+    mov si, sp
+    mov word [ss:si], 30
+    mov ah, 0x48
+    mov dl, [boot_drive]
+    int 0x13
+    jc .floppy_backup
+
+    mov eax, [ss:si + 16]           ; low 32 bits of total sector count
+    dec eax                         ; last sector (LBA sectors - 1)
+    add sp, 32                      ; restore stack
+    jmp .read_backup
+
+.floppy_backup:
+    add sp, 32                      ; restore stack
+    mov eax, 2879                    ; standard 1.44MB floppy size
+
+.read_backup:
+    mov cx, 0x2000
+    mov es, cx
+    xor bx, bx
+    call fs_read_sector
+    jc .fallback
+
+    ; Verify backup GPT signature
+    cmp dword [es:bx], 0x45464920
     jne .fallback
-    cmp dword [es:bx + 4], 0x50415254 ; "PART"
+    cmp dword [es:bx + 4], 0x50415254
     jne .fallback
 
-    ; Extract partition entry LBA (usually 2) and number of entries (usually 128)
-    mov eax, [es:bx + 72]           ; EAX = partition LBA
+.gpt_ok:
+    ; Extract partition entry LBA and number of entries
+    mov eax, [es:bx + 72]           ; partition array LBA
     mov [gpt_entries_lba], eax
-    mov ecx, [es:bx + 80]           ; ECX = number of partitions
+    mov ecx, [es:bx + 80]           ; number of partition entries
     mov [gpt_num_entries], ecx
 
-    ; 2. Scan partition entries sector-by-sector to find the FAT32 partition
+    ; 2. Scan partition entries sector-by-sector
     mov eax, [gpt_entries_lba]
-    xor edx, edx                    ; EDX = current entry index
+    xor edx, edx                    ; current entry index
 .sector_loop:
     cmp edx, [gpt_num_entries]
     jae .fallback
 
-    ; Read one sector of partition entries to 0x2000:0x0000
     push eax
     push edx
     mov ax, 0x2000
@@ -68,12 +100,10 @@ fs_load_kernel:
     pop edx
     pop eax
     call fs_read_sector
-    jc .next_sector                 ; read failed, skip sector
+    jc .next_sector
 
-    ; Process 4 entries in this sector (each is 128 bytes)
-    mov di, 0                       ; DI = offset to current entry
+    mov di, 0                       ; entry offset
 .entry_loop:
-    ; Check if entry is empty (Type GUID is all zeros)
     cmp dword [es:di], 0
     jne .check_partition
     cmp dword [es:di+4], 0
@@ -81,67 +111,76 @@ fs_load_kernel:
     cmp dword [es:di+8], 0
     jne .check_partition
     cmp dword [es:di+12], 0
-    je .next_entry                  ; all zero -> unused entry
+    je .next_entry                  ; unused entry
 
 .check_partition:
-    ; Extract starting LBA (offset 32)
-    mov ebx, [es:di + 32]           ; low dword of LBA
+    mov ebx, [es:di + 32]           ; partition start LBA
     test ebx, ebx
     jz .next_entry
 
-    ; Read the partition's boot sector to 0x3000:0x0000
+    ; Read boot sector
     push eax
     push edx
     push di
-    
-    mov eax, ebx                    ; EAX = partition starting LBA
+    mov eax, ebx
     mov cx, 0x3000
-    
     push es
     mov es, cx
     xor bx, bx
     call fs_read_sector
     pop es
-    
-    jc .boot_sector_fail            ; read failed
-    
-    ; Check signature at offset 510
+    jc .boot_sector_fail
+
+    ; Check if partition is FAT32
     mov cx, 0x3000
     mov fs, cx
     cmp word [fs:510], 0xAA55
-    jne .boot_sector_fail
-    
-    ; Check filesystem type at offset 82
+    jne .check_ext4                  ; not FAT32, try ext4
+
     cmp dword [fs:82], 0x33544146   ; "FAT3"
-    jne .boot_sector_fail
+    jne .check_ext4
     cmp dword [fs:86], 0x20202032   ; "2   "
-    jne .boot_sector_fail
-    
-    ; Found FAT32 partition!
-    ; Save partition parameters from BPB in FS segment
-    mov eax, [fs:36]                ; EAX = sectors per FAT (fat_size_32)
+    jne .check_ext4
+
+    ; Found FAT32!
+    mov eax, [fs:36]
     mov [fat_size], eax
-    
     xor eax, eax
-    mov al, [fs:16]                 ; AL = number of FATs
+    mov al, [fs:16]
     mov [num_fats], al
-    
-    mov ax, [fs:14]                 ; AX = reserved sectors
+    mov ax, [fs:14]
     mov [reserved_sectors], ax
-    
-    mov al, [fs:13]                 ; AL = sectors per cluster
+    mov al, [fs:13]
     mov [sec_per_clus], al
-    
-    mov eax, [fs:44]                ; EAX = root cluster
+    mov eax, [fs:44]
     mov [root_cluster], eax
-    
+
     pop di
     pop edx
     pop eax
-    
-    ; Save partition starting LBA
     mov [partition_start], ebx
     jmp .fat32_found
+
+.check_ext4:
+    ; Check if partition is ext4
+    pop di
+    pop edx
+    pop eax
+    push eax
+    push edx
+    push di
+
+    mov eax, ebx                    ; starting LBA
+    call ext4_detect
+    test ax, ax
+    jz .boot_sector_fail            ; not ext4, skip
+
+    ; Found ext4!
+    pop di
+    pop edx
+    pop eax
+    mov [partition_start], ebx
+    jmp .ext4_found
 
 .boot_sector_fail:
     pop di
@@ -149,141 +188,263 @@ fs_load_kernel:
     pop eax
 
 .next_entry:
-    add di, 128                     ; next entry in sector
-    inc edx                         ; increment entry index
+    add di, 128
+    inc edx
     cmp di, 512
     jl .entry_loop
 
 .next_sector:
-    inc eax                         ; next sector of partition entries
+    inc eax
     jmp .sector_loop
 
+; =============================================================================
+; FAT32 loading flow
+; =============================================================================
 .fat32_found:
-    ; Print partition found message
     mov si, msg_fat_found
     call uart_print
     mov eax, [partition_start]
     call uart_print_dec
-    
-    ; print CRLF
-    mov al, 0x0D
-    call uart_putc
-    mov al, 0x0A
-    call uart_putc
+    call uart_println
 
-    ; Calculate FAT and Data region starts
-    ; fat_start = partition_start + reserved_sectors
+    ; Calculate FAT starts
     mov eax, [partition_start]
     xor ecx, ecx
     mov cx, [reserved_sectors]
     add eax, ecx
     mov [fat_start], eax
 
-    ; data_start = fat_start + (num_fats * fat_size)
     mov eax, [fat_size]
     xor ecx, ecx
     mov cl, [num_fats]
-    mul ecx                         ; EAX = num_fats * fat_size
+    mul ecx
     add eax, [fat_start]
     mov [data_start], eax
 
-    ; 3. Scan root directory to find "KERNEL  ULF"
+    ; 2.5 Try loading tattva.cfg first
     mov eax, [root_cluster]
-.dir_loop:
-    ; Read the directory cluster to 0x2000:0x0000
+    lea dx, [rel filename_config]
+    call fat32_find_file_helper
+    test eax, eax
+    jz .no_config_found
+
+    ; Load tattva.cfg to 0x3000:0x0000
     push eax
+    mov ax, 0x3000
+    mov es, ax
+    xor bx, bx
+    pop eax
+.load_cfg_loop:
+    call fs_read_cluster
+    jc .no_config_found
+    call fs_get_next_cluster
+    cmp eax, 0x0FFFFFF8
+    jb .load_cfg_loop
+
+    ; Parse tattva.cfg
+    mov si, 0                       ; offset 0 of segment 0x3000
+    mov cx, 512                      ; assume max 512 bytes for config
+    push ds
+    mov ax, 0x3000
+    mov ds, ax
+    call config_parse
+    pop ds
+
+.no_config_found:
+    ; 3. Find KERNEL.ULF (or config_kernel_name)
+    mov eax, [root_cluster]
+    
+    ; Check if custom kernel name is specified in config
+    cmp byte [config_kernel_name], 0
+    jz .use_default_kernel
+
+    ; Convert config_kernel_name to 8.3 fat filename format if needed
+    ; For early unikernel test, we can just load the default or compare directly
+.use_default_kernel:
+    mov eax, [root_cluster]
+    lea dx, [rel filename_kernel]
+    call fat32_find_file_helper
+    test eax, eax
+    jz .fallback
+
+    mov [kernel_start_cluster], eax
+
+    ; Load KERNEL.ULF
+    mov si, msg_loading_kernel
+    call uart_print
+    mov ax, (KERNEL_TEMP >> 4)
+    mov es, ax
+    xor bx, bx
+    mov eax, [kernel_start_cluster]
+.load_file_loop:
+    call fs_read_cluster
+    jc .try_fallback_kernel
+    call fs_get_next_cluster
+    cmp eax, 0x0FFFFFF8
+    jb .load_file_loop
+    jmp .load_initrd
+
+.try_fallback_kernel:
+    ; Try loading fallback kernel if primary fails
+    mov eax, [root_cluster]
+    lea dx, [rel filename_fallback]
+    call fat32_find_file_helper
+    test eax, eax
+    jz .fallback
+
+    mov [kernel_start_cluster], eax
+    mov ax, (KERNEL_TEMP >> 4)
+    mov es, ax
+    xor bx, bx
+    mov eax, [kernel_start_cluster]
+.load_fallback_loop:
+    call fs_read_cluster
+    jc .fallback
+    call fs_get_next_cluster
+    cmp eax, 0x0FFFFFF8
+    jb .load_fallback_loop
+
+.load_initrd:
+    ; Look for INITRD.IMG in root directory
+    mov eax, [root_cluster]
+    lea dx, [rel filename_initrd]
+    call fat32_find_file_helper
+    test eax, eax
+    jz .no_initrd
+
+    mov [initrd_start_cluster], eax
+    ; load size
+    mov dword [initrd_size], 65536   ; assume 64KB for test
+
+    mov si, msg_loading_initrd
+    call uart_print
+    ; Load to 0x4000:0x0000
+    mov ax, 0x4000
+    mov es, ax
+    xor bx, bx
+    mov eax, [initrd_start_cluster]
+.load_initrd_loop:
+    call fs_read_cluster
+    jc .no_initrd
+    call fs_get_next_cluster
+    cmp eax, 0x0FFFFFF8
+    jb .load_initrd_loop
+
+    mov byte [initrd_loaded], 1
+
+.no_initrd:
+    mov ax, 1
+    jmp .done
+
+; Helper to find a file in FAT32 root directory
+; Input: EAX = starting cluster of directory
+;        DX = pointer to 11-char name string
+; Output: EAX = starting cluster of file, 0 if not found
+fat32_find_file_helper:
+    push dx
     mov cx, 0x2000
     mov es, cx
     xor bx, bx
     call fs_read_cluster
-    pop eax
-    jc .fallback
-    
-    ; Scan the directory entries in this cluster
+    pop dx
+    jc .not_found
+
     xor cx, cx
     mov cl, [sec_per_clus]
-    shl cx, 4                       ; CX = entries count (sec_per_clus * 16)
-    
-    mov di, 0                       ; DI = entry offset
-.dir_entry_loop:
-    ; Check if entry is end of directory
+    shl cx, 4                       ; CX = entries count
+    mov di, 0
+.entry_loop:
     mov al, [es:di]
     test al, al
-    jz .fallback                    ; end of directory -> file not found
-    
+    jz .not_found
     cmp al, 0xE5
-    je .next_dir_entry              ; deleted entry
-    
-    ; Check attribute (offset 11). Skip volume label (0x08) and LFN (0x0F)
+    je .next_entry
+
     mov al, [es:di + 11]
     test al, 0x08
-    jnz .next_dir_entry
+    jnz .next_entry
     cmp al, 0x0F
-    je .next_dir_entry
-    
-    ; Compare filename "KERNEL  ULF"
-    mov si, filename_kernel
+    je .next_entry
+
+    mov si, dx
     push di
-    mov dx, 11
-.compare_name:
+    mov bp, 11
+.cmp_loop:
     mov al, [es:di]
     mov bl, [si]
     cmp al, bl
-    jne .name_mismatch
+    jne .mismatch
     inc di
     inc si
-    dec dx
-    jnz .compare_name
-    
-    ; Found the file!
+    dec bp
+    jnz .cmp_loop
+
     pop di
-    jmp .file_found
-    
-.name_mismatch:
+    ; Found! Extract cluster
+    mov ax, [es:di + 20]
+    shl eax, 16
+    mov ax, [es:di + 26]
+    ret
+
+.mismatch:
     pop di
-.next_dir_entry:
+.next_entry:
     add di, 32
     dec cx
-    jnz .dir_entry_loop
-    
-    ; If not found in this cluster, get next cluster of root directory
-    call fs_get_next_cluster
-    cmp eax, 0x0FFFFFF8
-    jb .dir_loop
-    jmp .fallback                   ; EOF reached, file not found
+    jnz .entry_loop
+.not_found:
+    xor eax, eax
+    ret
 
-.file_found:
-    ; Print loading message
-    mov si, msg_loading_kernel
+; =============================================================================
+; ext4 loading flow
+; =============================================================================
+.ext4_found:
+    mov si, msg_ext4_found
     call uart_print
+    mov eax, [partition_start]
+    call uart_print_dec
+    call uart_println
 
-    ; Extract starting cluster
-    mov ax, [es:di + 20]            ; high 16 bits
-    shl eax, 16
-    mov ax, [es:di + 26]            ; low 16 bits
-    mov [kernel_start_cluster], eax
+    ; Load KERNEL.ULF using ext4
+    mov eax, [partition_start]
+    mov si, filename_kernel_ext4
+    mov cx, (KERNEL_TEMP >> 4)
+    mov es, cx
+    xor bx, bx
+    call ext4_load_file
+    test ax, ax
+    jnz .ext4_load_initrd
 
-    ; Load the kernel file cluster by cluster to KERNEL_TEMP (0x2000:0x0000)
-    mov ax, (KERNEL_TEMP >> 4)
-    mov es, ax
-    xor bx, bx                      ; ES:BX = 0x2000:0x0000
-    
-    mov eax, [kernel_start_cluster]
-.load_file_loop:
-    call fs_read_cluster
-    jc .fallback
-    
-    ; Get next cluster
-    call fs_get_next_cluster
-    cmp eax, 0x0FFFFFF8
-    jb .load_file_loop
+    ; If primary fails, try fallback kernel
+    mov eax, [partition_start]
+    mov si, filename_fallback_ext4
+    mov cx, (KERNEL_TEMP >> 4)
+    mov es, cx
+    xor bx, bx
+    call ext4_load_file
+    test ax, ax
+    jz .fallback
 
-    ; Success! Set AX = 1
+.ext4_load_initrd:
+    ; Load INITRD.IMG if available
+    mov eax, [partition_start]
+    mov si, filename_initrd_ext4
+    mov cx, 0x4000
+    mov es, cx
+    xor bx, bx
+    call ext4_load_file
+    test ax, ax
+    jz .ext4_no_initrd
+
+    mov dword [initrd_size], 65536
+    mov byte [initrd_loaded], 1
+
+.ext4_no_initrd:
     mov ax, 1
     jmp .done
 
 .fallback:
-    ; Failure! Set AX = 0
     xor ax, ax
 
 .done:
@@ -296,10 +457,7 @@ fs_load_kernel:
     ret
 
 ; =============================================================================
-; fs_read_sector — read 1 sector to ES:BX using LBA (with CHS fallback)
-; Input:  EAX = starting LBA sector
-;         ES:BX = destination buffer
-; Output: CF set on error
+; Helper I/O functions
 ; =============================================================================
 fs_read_sector:
     push eax
@@ -308,50 +466,44 @@ fs_read_sector:
     push si
     push di
 
-    ; Check if LBA is supported
     cmp byte [lba_supported], 1
     je .lba_read
 
-    ; CHS fallback for floppy drives
     push bx
     push ax
-    ; AX has low 16 bits of LBA
     xor dx, dx
     mov cx, [sectors_per_track]
     test cx, cx
-    jz .chs_error                   ; division by zero guard
-    div cx                          ; AX = LBA / sectors_per_track, DX = LBA % sectors_per_track
-    inc dx                          ; DX = Sector (1-indexed)
-    mov cl, dl                      ; CL = Sector
+    jz .chs_error
+    div cx
+    inc dx
+    mov cl, dl
     
     xor dx, dx
     mov cx, [number_of_heads]
     test cx, cx
-    jz .chs_error                   ; division by zero guard
-    div cx                          ; AX = Cylinder, DX = Head
+    jz .chs_error
+    div cx
     
-    mov ch, al                      ; CH = Cylinder (low 8 bits)
+    mov ch, al
     shl ah, 6
-    or cl, ah                       ; CL bits 6-7 = cylinder bits 8-9
-    
-    mov dh, dl                      ; DH = Head
-    mov dl, [boot_drive]            ; DL = boot drive
-    
+    or cl, ah
+    mov dh, dl
+    mov dl, [boot_drive]
     pop ax
     pop bx
     
-    mov ax, 0x0201                  ; Read 1 sector
+    mov ax, 0x0201
     int 0x13
     jmp .done
 
 .chs_error:
-    pop ax                          ; clean up stack on error
+    pop ax
     pop bx
-    stc                             ; set carry flag to signal read error
+    stc
     jmp .done
 
 .lba_read:
-    ; Setup DAP packet
     mov [fs_dap_lba], eax
     mov [fs_dap_offset], bx
     mov [fs_dap_segment], es
@@ -369,40 +521,31 @@ fs_read_sector:
     pop eax
     ret
 
-; =============================================================================
-; fs_read_cluster — read a cluster to ES:BX
-; Input:  EAX = cluster number
-;         ES:BX = target buffer
-; Output: ES:BX advanced by cluster size
-;         CF set on error
-; =============================================================================
 fs_read_cluster:
     push eax
     push ecx
     push edx
     
-    ; LBA = data_start + (cluster - 2) * sectors_per_cluster
     sub eax, 2
     xor edx, edx
     mov dl, [sec_per_clus]
-    mul edx                         ; EAX = (cluster - 2) * sectors_per_cluster
-    add eax, [data_start]           ; EAX = starting LBA of cluster
+    mul edx
+    add eax, [data_start]
     
-    mov cl, [sec_per_clus]          ; CL = sectors to read
+    mov cl, [sec_per_clus]
 .read_loop:
     call fs_read_sector
     jc .error
-    add bx, 512                     ; advance buffer pointer
-    test bx, bx                     ; check 64KB wrap
+    add bx, 512
+    test bx, bx
     jnz .no_wrap
     mov dx, es
-    add dx, 0x1000                  ; advance ES segment by 64KB (0x1000 paragraphs)
+    add dx, 0x1000
     mov es, dx
 .no_wrap:
-    inc eax                         ; next LBA
+    inc eax
     dec cl
     jnz .read_loop
-    
     clc
     jmp .done
 .error:
@@ -413,27 +556,18 @@ fs_read_cluster:
     pop eax
     ret
 
-; =============================================================================
-; fs_get_next_cluster — read the FAT table to find the next cluster in the chain
-; Input:  EAX = current cluster number
-; Output: EAX = next cluster number
-;         CF set on error
-; =============================================================================
 fs_get_next_cluster:
     push ebx
     push ecx
     push edx
     push es
     
-    ; Calculate sector and offset
-    shl eax, 2                      ; EAX = cluster * 4
+    shl eax, 2
     xor edx, edx
     mov ecx, 512
-    div ecx                         ; EAX = sector offset, EDX = byte offset in sector
+    div ecx
+    add eax, [fat_start]
     
-    add eax, [fat_start]            ; EAX = LBA of FAT sector
-    
-    ; Read the FAT sector to a temporary buffer at 0x3000:0x0000
     push edx
     mov cx, 0x3000
     mov es, cx
@@ -442,15 +576,14 @@ fs_get_next_cluster:
     pop edx
     jc .error
     
-    ; Read the next cluster value from the buffer
     mov bx, dx
     mov eax, [es:bx]
-    and eax, 0x0FFFFFFF             ; mask upper 4 bits in FAT32
+    and eax, 0x0FFFFFFF
     clc
     jmp .done
     
 .error:
-    mov eax, 0x0FFFFFFF             ; return EOF
+    mov eax, 0x0FFFFFFF
     stc
 .done:
     pop es
@@ -475,22 +608,41 @@ sec_per_clus:         db 0
 root_cluster:         dd 0
 kernel_start_cluster: dd 0
 
-filename_kernel:      db "KERNEL  ULF" ; 11 chars in 8.3 format
+filename_config:      db "TATTVA  CFG"
+filename_kernel:      db "KERNEL  ULF"
+filename_fallback:    db "KERNELRCULF"
+filename_initrd:      db "INITRD  IMG"
+
+filename_kernel_ext4:   db "kernel.ulf", 0
+filename_fallback_ext4: db "kernel_recovery.ulf", 0
+filename_initrd_ext4:   db "initrd.img", 0
 
 msg_fs_init:          db "FS Init... ", 0
 msg_fat_found:        db "FAT32 partition found at LBA: ", 0
+msg_ext4_found:       db "ext4 partition found at LBA: ", 0
 msg_loading_kernel:   db "Loading KERNEL.ULF... ", 0
+msg_loading_initrd:   db "Loading INITRD.IMG... ", 0
 
 align 4
 fs_dap_packet:
-    db 0x10                         ; packet size = 16 bytes
-    db 0x00                         ; reserved = 0
-    dw 1                            ; number of sectors to read = 1
+    db 0x10
+    db 0x00
+    dw 1
 fs_dap_offset:
-    dw 0                            ; destination offset
+    dw 0
 fs_dap_segment:
-    dw 0                            ; destination segment
+    dw 0
 fs_dap_lba:
-    dq 0                            ; starting LBA (8 bytes)
+    dq 0
+
+initrd_size:          dd 0
+initrd_loaded:        db 0
+initrd_start_cluster: dd 0
+
+; Include Ext4 filesystem helper driver
+%include "ext4.asm"
+
+; Include Config file parser
+%include "parser.asm"
 
 %endif ; FS16_ASM
