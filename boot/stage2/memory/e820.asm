@@ -452,6 +452,7 @@ e820_print:
     push ax
     push cx
     push si
+    push bx
 
     mov si, msg_e820_header
     call uart_println
@@ -460,46 +461,39 @@ e820_print:
     test cx, cx
     jz .print_empty
 
-    mov si, E820_DEST + E820_ENTRIES_OFF
+    mov bx, E820_DEST + E820_ENTRIES_OFF
 
 .print_loop:
     push cx
-    push si
 
-    ; print base address
-    mov ax, msg_e820_base
-    push ax
-    mov si, ax
-    call uart_print
-    mov eax, [si + 4]               ; base high — reuse si? no, fix:
-    pop ax
-
-    ; print base low dword
-    push si
+    ; print "  base="
     mov si, msg_e820_base
     call uart_print
-    pop si
-    mov eax, [si + 0]               ; base low
+
+    ; print base address (64-bit): high dword first, then low
+    mov eax, [bx + 4]
+    call uart_print_hex32
+    mov eax, [bx + 0]
     call uart_print_hex32
 
-    ; print length
-    push si
+    ; print " len="
     mov si, msg_e820_len
     call uart_print
-    pop si
-    mov eax, [si + 8]               ; length low
+
+    ; print length (64-bit): high dword first, then low
+    mov eax, [bx + 12]
+    call uart_print_hex32
+    mov eax, [bx + 8]
     call uart_print_hex32
 
-    ; print type
-    push si
+    ; print " type="
     mov si, msg_e820_type
     call uart_print
-    pop si
-    mov eax, [si + 16]
+    mov eax, [bx + 16]
     call uart_print_dec
 
-    ; print type name
-    mov eax, [si + 16]
+    ; print type string
+    mov eax, [bx + 16]
     cmp eax, E820_TYPE_USABLE
     je .type_usable
     cmp eax, E820_TYPE_RESERVED
@@ -510,7 +504,7 @@ e820_print:
     je .type_nvs
     mov si, msg_type_bad
     jmp .print_type
-.type_usable:   mov si, msg_type_usable  ; jmp .print_type
+.type_usable:   mov si, msg_type_usable
     jmp .print_type
 .type_reserved: mov si, msg_type_reserved
     jmp .print_type
@@ -521,9 +515,8 @@ e820_print:
 .print_type:
     call uart_println
 
-    pop si
+    add bx, E820_ENTRY_SIZE
     pop cx
-    add si, E820_ENTRY_SIZE
     dec cx
     jnz .print_loop
 
@@ -541,6 +534,7 @@ e820_print:
     call uart_println
 
 .print_done:
+    pop bx
     pop si
     pop cx
     pop ax
