@@ -411,6 +411,7 @@ boot_info_init:
     push edi
     push es
 
+    cld                             ; Clear direction flag for rep stosd
     ; Zero out the 56-byte BootInfo structure (14 dwords)
     mov edi, BOOT_INFO_ADDR
     mov ecx, 14
