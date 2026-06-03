@@ -23,7 +23,7 @@
 uefi_print:
     push rbp
     mov rbp, rsp
-    sub rsp, 40                     ; 32 bytes shadow space + 8 bytes alignment
+    sub rsp, 48                     ; shadow space + padding for 16-byte alignment
 
     mov r8, rdx                     ; R8 = string pointer
     mov r9, rcx                     ; R9 = System Table pointer
