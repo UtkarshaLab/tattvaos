@@ -3,7 +3,8 @@
 ; =============================================================================
 ; Virtual memory page mapping API (maps virtual -> physical).
 ; Uses the pgtable_cache recycling pool (3.3) as a fast path for
-; intermediate table allocation, falling back to phys_alloc_page + memzero.
+; intermediate table allocation, and per-PML4 spinlocks (3.4) for
+; concurrent safety on multi-core systems.
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -41,6 +42,10 @@ virt_map:
     and r13, -4096                  ; R13 = physical address
     mov r14, rdx                    ; R14 = flags
     or r14, PAGE_PRESENT            ; always present when mapped
+
+    ; Acquire per-PML4 spinlock for this virtual address (3.4)
+    mov rdi, r12
+    call pgtable_lock_acquire
 
     ; Load CR3 as the initial directory base
     mov rax, cr3
@@ -179,10 +184,17 @@ virt_map:
     invlpg [r12]
 
     mov rax, 1                      ; return 1 (success)
-    jmp .exit
+    jmp .unlock_exit
 
 .oom:
     xor rax, rax                    ; return 0 (OOM/error)
+
+.unlock_exit:
+    ; Release per-PML4 spinlock (3.4)
+    push rax
+    mov rdi, r12
+    call pgtable_lock_release
+    pop rax
 
 .exit:
     pop r15
