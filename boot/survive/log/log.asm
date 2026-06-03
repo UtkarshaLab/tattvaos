@@ -23,15 +23,15 @@
 ; =============================================================================
 survive_log_panic:
     cld                             ; Clear direction flag for forward copy
-    ; 1. Store the crash RIP at 0x9800
-    mov [0x9800], rdx
+    ; 1. Store the crash RIP at SURVIVE_PAGE + 0x800
+    mov [SURVIVE_PAGE + 0x800], rdx
 
-    ; 2. Copy the ASCII string from RCX to 0x9808 (limit to 256 bytes)
+    ; 2. Copy the ASCII string from RCX to SURVIVE_PAGE + 0x808 (limit to 256 bytes)
     test rcx, rcx
     jz .write_default
     
     mov rsi, rcx
-    mov rdi, 0x9808
+    mov rdi, SURVIVE_PAGE + 0x808
     mov rcx, 255                    ; limit size (leaving 1 byte for null)
 
 .copy_loop:
@@ -53,7 +53,7 @@ survive_log_panic:
 
 .write_default:
     ; If pointer is null, write a default message
-    mov rdi, 0x9808
+    mov rdi, SURVIVE_PAGE + 0x808
     mov dword [rdi], 0x6B6E6E55     ; "Unkn"
     mov dword [rdi + 4], 0x206E6F77 ; "own "
     mov dword [rdi + 8], 0x696E6150 ; "Pani"
