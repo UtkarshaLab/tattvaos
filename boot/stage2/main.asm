@@ -213,6 +213,8 @@ stage2_main:
     jmp .halt
 
 .kernel_done:
+    ; Initialize BootInfo structure at 0x7000
+    call boot_info_init
 
     ; -------------------------------------------------------------------------
     ; STEP 4: Setup GDT — never returns, continues in 32-bit protected mode
@@ -286,5 +288,45 @@ stage2_main_pm32:
     cli
     hlt
 [BITS 16]
+
+; =============================================================================
+; boot_info_init — initialize BootInfo structure at 0x7000
+; Input: none
+; Output: none
+; Clobbers: none (preserves all registers)
+; =============================================================================
+boot_info_init:
+    push eax
+    push ecx
+    push edi
+
+    ; Zero out the 56-byte BootInfo structure (14 dwords)
+    mov edi, BOOT_INFO_ADDR
+    mov ecx, 14
+    xor eax, eax
+    rep stosd
+
+    ; 1. e820_map_addr -> E820_DEST + 2
+    mov dword [BOOT_INFO_E820_ADDR], E820_DEST + 2
+    mov dword [BOOT_INFO_E820_ADDR + 4], 0
+
+    ; 2. e820_count -> load count word from E820_DEST
+    xor eax, eax
+    mov ax, [E820_DEST]
+    mov [BOOT_INFO_E820_COUNT], eax
+
+    ; 3. boot_drive -> load byte, zero-extend to dword
+    xor eax, eax
+    mov al, [boot_drive]
+    mov [BOOT_INFO_DRIVE], eax
+
+    ; 4. cpu_features -> load from FEATURES_DEST
+    mov eax, [FEATURES_DEST]
+    mov [BOOT_INFO_FEATURES], eax
+
+    pop edi
+    pop ecx
+    pop eax
+    ret
 
 %endif ; MAIN_ASM
