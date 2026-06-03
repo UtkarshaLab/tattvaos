@@ -231,6 +231,12 @@ longmode_64:
     mov rsi, msg_kernel_ok
     call uart_print_64
 
+    ; Save the pristine state snapshot and register the panic vector
+    extern survive_snapshot_save
+    extern survive_vector_install
+    call survive_snapshot_save
+    call survive_vector_install
+
     mov rdi, BOOT_INFO_ADDR         ; Pass BootInfo pointer in RDI (System V ABI)
     jmp rax                         ; jump dynamically!
 
