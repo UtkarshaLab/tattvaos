@@ -242,15 +242,39 @@ stage2_main:
     mov si, msg_fail
     call uart_print
     
-    ; Print " (Error: 0xXX)"
+    ; Print " (Error: 0xXX"
     mov si, msg_err_prefix
     call uart_print
     
     mov al, dl                      ; AL = error code
     call uart_print_hex8
     
+    mov si, msg_err_dash
+    call uart_print                 ; Print " - "
+
+    ; Look up description for error code in DL
+    mov si, bios_error_table
+.lookup_loop:
+    mov al, [si]
+    test al, al                     ; end of table?
+    jz .lookup_unknown
+    cmp al, dl                      ; match?
+    je .lookup_found
+    add si, 3                       ; next entry (1 byte code + 2 bytes pointer)
+    jmp .lookup_loop
+
+.lookup_found:
+    mov si, [si+1]                  ; SI = pointer to string
+    jmp .lookup_print
+
+.lookup_unknown:
+    mov si, err_str_unknown
+
+.lookup_print:
+    call uart_print
+    
     mov si, msg_err_suffix
-    call uart_print                 ; Print suffix without newline
+    call uart_print                 ; Print ")" without newline
     
     ; Print " Sector: XX"
     mov si, msg_err_sector
@@ -313,6 +337,7 @@ msg_ram:        db "RAM: ", 0
 msg_kernel:     db "Kernel... ", 0
 msg_err_prefix: db " (Error: ", 0
 msg_err_suffix: db ")", 0
+msg_err_dash:   db " - ", 0
 msg_err_sector: db " Sector: ", 0
 msg_help:       db "Help: Is kernel.ulf on disk?", 0
 msg_a20_halt:   db "HALT: A20 enable failed on all methods", 0
