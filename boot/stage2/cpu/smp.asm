@@ -52,7 +52,7 @@ smp_init_cores:
     ; Level: Assert (0x4000)
     ; ICR Low: 0x000C4500
     mov eax, 0x000C4500
-    mov [LAPIC_BASE + LAPIC_ICR_LOW], eax
+    mov [dword LAPIC_BASE + LAPIC_ICR_LOW], eax
 
     ; Wait 10ms (using BIOS wait INT 15h AH=86h)
     mov cx, 0x000F                   ; CX:DX = 10000 microseconds = 10ms
@@ -66,7 +66,7 @@ smp_init_cores:
     ; Vector: 0x04 (maps to page 0x04000)
     ; ICR Low: 0x000C4604
     mov eax, 0x000C4604
-    mov [LAPIC_BASE + LAPIC_ICR_LOW], eax
+    mov [dword LAPIC_BASE + LAPIC_ICR_LOW], eax
 
     ; Wait 200 microseconds
     mov cx, 0
@@ -76,7 +76,7 @@ smp_init_cores:
 
     ; Send 2nd Startup IPI (SIPI)
     mov eax, 0x000C4604
-    mov [LAPIC_BASE + LAPIC_ICR_LOW], eax
+    mov [dword LAPIC_BASE + LAPIC_ICR_LOW], eax
 
     ; Wait 15ms for APs to check-in
     mov cx, 0x0016
