@@ -11,6 +11,8 @@
 
 [BITS 64]
 
+%include "lib/mem/mem.inc"
+
 section .text
 
 kernel_init:
@@ -112,11 +114,32 @@ kernel_init:
 mm_init:
     call phys_init
 
-    ; Allocate 1024 pages (4MB) for kernel early bump heap
+    ; 1. Mark kernel code/data as global (1MB to kernel_end)
+    mov rdi, 0x100000               ; kernel start: 1MB
+    mov rsi, kernel_end
+    sub rsi, 0x100000               ; kernel size
+    call virt_mark_global_range
+
+    ; 2. Mark physical allocator bitmap as global
+    mov rdi, [phys_state + phys_state_t.bitmap_addr]
+    mov rsi, [phys_state + phys_state_t.bitmap_size]
+    call virt_mark_global_range
+
+    ; 3. Allocate 1024 pages (4MB) for kernel early bump heap
     mov rdi, 1024
     call phys_alloc_pages
     test rax, rax
     jz .error
+
+    ; Save heap start address
+    push rax
+
+    ; 4. Mark early heap as global
+    mov rdi, rax
+    mov rsi, 1024 * 4096            ; 4MB size
+    call virt_mark_global_range
+
+    pop rax                         ; restore heap start address
 
     mov rdi, rax
     mov rsi, 1024 * 4096            ; 4MB size
