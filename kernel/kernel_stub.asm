@@ -56,6 +56,14 @@ kernel_entry:
     mov rsi, .msg_crlf
     call .uart_print_str
 
+    ; 5. Print ACPI RSDP physical address
+    mov rsi, .msg_acpi_rsdp
+    call .uart_print_str
+    mov rax, [rbp + 24]             ; load acpi_rsdp (BOOT_INFO_ACPI_RSDP offset 24)
+    call .uart_print_hex64
+    mov rsi, .msg_crlf
+    call .uart_print_str
+
     ; -------------------------------------------------------------------------
     ; Halt — kernel has no scheduler yet
     ; -------------------------------------------------------------------------
@@ -150,6 +158,48 @@ kernel_entry:
     ret
 
 ; =============================================================================
+; .uart_print_hex64 — print a 64-bit register value in hex
+; Input: RAX = value
+; Output: nothing
+; =============================================================================
+.uart_print_hex64:
+    push rcx
+    push rdx
+    push rsi
+    push rax
+
+    mov rcx, rax                    ; save to RCX
+
+    ; print "0x"
+    mov al, '0'
+    call .uart_putc
+    mov al, 'x'
+    call .uart_putc
+
+    ; print 16 nibbles
+    mov edx, 16
+.hex_loop:
+    rol rcx, 4                      ; rotate top nibble to bottom
+    mov al, cl
+    and al, 0x0F
+    cmp al, 10
+    jl .hex_digit
+    add al, 'A' - 10
+    jmp .hex_print
+.hex_digit:
+    add al, '0'
+.hex_print:
+    call .uart_putc
+    dec edx
+    jnz .hex_loop
+
+    pop rax
+    pop rsi
+    pop rdx
+    pop rcx
+    ret
+
+; =============================================================================
 ; .uart_print_dec — print unsigned 32-bit integer in decimal
 ; Input: EAX = value
 ; Output: nothing
@@ -207,6 +257,7 @@ kernel_entry:
 .msg_boot_drive:    db "Boot Drive:    ", 0
 .msg_e820_entries: db "E820 Entries:  ", 0
 .msg_cpu_features: db "CPU Features:  ", 0
+.msg_acpi_rsdp:     db "ACPI RSDP:     ", 0
 .msg_crlf:         db 0x0D, 0x0A, 0
 
 align 8
