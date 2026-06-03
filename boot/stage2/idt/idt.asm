@@ -56,7 +56,7 @@ idt_descriptor:
 [BITS 32]
 idt_build:
     pushad
-
+    cld                             ; Clear direction flag for lodsd
     mov edi, idt_start              ; destination: IDT
     mov esi, idt_handler_table      ; source: handler addresses
     mov ecx, 32                     ; 32 entries
