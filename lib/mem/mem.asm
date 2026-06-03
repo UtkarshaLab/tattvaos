@@ -23,6 +23,7 @@
 %include "lib/mem/phys/phys.asm"
 %include "lib/mem/heap/free_list.asm"
 %include "lib/mem/virt/pgtable.asm"
+%include "lib/mem/virt/pgtable_cache.asm"
 %include "lib/mem/virt/pgtable_map.asm"
 %include "lib/mem/virt/pgtable_unmap.asm"
 %include "lib/mem/virt/pgtable_walk.asm"
