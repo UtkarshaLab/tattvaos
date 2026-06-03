@@ -187,11 +187,72 @@ longmode_64:
 
     call kernel_load                ; copy kernel from KERNEL_TEMP → KERNEL_LOAD
 
+    ; 1. Verify ULF magic number at KERNEL_LOAD (0x100000)
+    mov eax, [KERNEL_LOAD]          ; load first dword (magic)
+    cmp eax, 0x00464C55             ; check if it matches "ULF\0"
+    jne .ulf_bad_magic
+
+    ; 2. Verify kernel size constraints (must be multiple of 8, >= 32 bytes, <= 32MB)
+    mov ecx, [KERNEL_LOAD + 4]      ; ecx = total size of binary in bytes
+    test ecx, 7                     ; must be 8-byte aligned
+    jnz .ulf_bad_size
+    cmp ecx, 32
+    jl .ulf_bad_size
+    cmp ecx, 32 * 1024 * 1024       ; max 32MB
+    jg .ulf_bad_size
+
+    ; 3. Verify Checksum
+    mov rsi, KERNEL_LOAD
+    mov ebx, ecx
+    shr ebx, 3                      ; rbx = number of 8-byte quadwords
+    jz .checksum_done
+    
+    xor rax, rax                    ; rax = calculated sum
+    xor rdx, rdx                    ; rdx = current offset
+
+.checksum_loop:
+    cmp rdx, 16                     ; skip the checksum field at offset 16 (0x10)
+    je .skip_field
+    add rax, [rsi + rdx]
+.skip_field:
+    add rdx, 8
+    dec rbx
+    jnz .checksum_loop
+
+.checksum_done:
+    mov r8, [KERNEL_LOAD + 16]      ; load checksum from header
+    cmp rax, r8
+    jne .ulf_bad_checksum
+
+    ; 4. Retrieve dynamic entry point from header (offset 8)
+    mov rax, [KERNEL_LOAD + 8]      ; rax = entry_point
+
+    ; 5. Print success and dynamic jump
     mov rsi, msg_kernel_ok
     call uart_print_64
 
     mov rdi, BOOT_INFO_ADDR         ; Pass BootInfo pointer in RDI (System V ABI)
-    jmp KERNEL_LOAD                 ; jump to kernel entry point
+    jmp rax                         ; jump dynamically!
+
+.ulf_bad_magic:
+    mov rsi, msg_ulf_err_magic
+    call uart_print_64
+    jmp .halt
+
+.ulf_bad_size:
+    mov rsi, msg_ulf_err_size
+    call uart_print_64
+    jmp .halt
+
+.ulf_bad_checksum:
+    mov rsi, msg_ulf_err_checksum
+    call uart_print_64
+    jmp .halt
+
+.halt:
+    cli
+    hlt
+    jmp .halt
 
     ; never reaches here
     cli
@@ -204,6 +265,9 @@ longmode_64:
 msg_longmode_ok:    db "Long mode OK", 0x0D, 0x0A, 0
 msg_kernel_load:    db "Kernel... ", 0
 msg_kernel_ok:      db "OK", 0x0D, 0x0A, 0
+msg_ulf_err_magic:  db "FAIL (Bad Magic)", 0x0D, 0x0A, 0
+msg_ulf_err_size:   db "FAIL (Bad Size)", 0x0D, 0x0A, 0
+msg_ulf_err_checksum:db "FAIL (Bad Checksum)", 0x0D, 0x0A, 0
 
 ; Switch back to 16-bit for rest of stage2
 [BITS 16]
