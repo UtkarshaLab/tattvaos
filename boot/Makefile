@@ -27,6 +27,7 @@ stage2/stage2.bin: stage2/entry.asm
 $(KERNEL_DIR)/kernel_stub.bin: $(KERNEL_DIR)/kernel_stub.asm
 	$(ASM) -f bin $(KERNEL_DIR)/kernel_stub.asm \
 		-o $(KERNEL_DIR)/kernel_stub.bin
+	python3 -c "import struct; f='$(KERNEL_DIR)/kernel_stub.bin'; d=bytearray(open(f,'rb').read()); struct.pack_into('<Q',d,16,0); s=sum(struct.unpack('<Q',d[i:i+8].ljust(8,b'\0'))[0] for i in range(0,len(d),8))&0xFFFFFFFFFFFFFFFF; struct.pack_into('<Q',d,16,s); open(f,'wb').write(d)"
 
 # Disk image layout:
 #   Sector 0       = stage1 (MBR, 512 bytes)
