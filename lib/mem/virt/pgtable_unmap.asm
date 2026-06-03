@@ -1,9 +1,11 @@
 ; =============================================================================
 ; Tattva OS — lib/mem/virt/pgtable_unmap.asm
 ; =============================================================================
-; Virtual memory page unmapping API with empty table reclamation (3.2).
+; Virtual memory page unmapping API with empty table reclamation (3.2)
+; and recycling pool integration (3.3).
 ; After clearing the leaf PTE, walks back up the hierarchy and reclaims
-; any page table that has become completely empty.
+; any page table that has become completely empty, recycling them into
+; the pgtable_cache pool for instant reuse.
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -139,9 +141,9 @@ virt_unmap:
     call .check_table_empty         ; RAX = PT base, returns CF=1 if empty
     jnc .done                       ; not empty, we're done
 
-    ; PT is empty — reclaim it
+    ; PT is empty — recycle it (cache fast path → PMM fallback)
     mov rdi, rax                    ; RDI = PT physical address
-    call phys_free_page
+    call ._recycle_table
     mov qword [r15], 0              ; clear PD entry pointing to this PT
 
     ; =========================================================================
@@ -152,9 +154,9 @@ virt_unmap:
     call .check_table_empty
     jnc .done
 
-    ; PD is empty — reclaim it
+    ; PD is empty — recycle it
     mov rdi, rax
-    call phys_free_page
+    call ._recycle_table
     mov qword [r14], 0              ; clear PDPT entry pointing to this PD
 
     ; =========================================================================
@@ -165,9 +167,9 @@ virt_unmap:
     call .check_table_empty
     jnc .done
 
-    ; PDPT is empty — reclaim it
+    ; PDPT is empty — recycle it
     mov rdi, rax
-    call phys_free_page
+    call ._recycle_table
     mov qword [r13], 0              ; clear PML4 entry pointing to this PDPT
 
     jmp .done
@@ -224,6 +226,25 @@ virt_unmap:
 
 .not_empty:
     clc                             ; clear CF = 0 (not empty)
+    ret
+
+; -----------------------------------------------------------------------------
+; ._recycle_table — recycles a reclaimed page table into the cache pool
+; Tries pgtable_cache_free first (page is already zeroed since table was empty).
+; Falls back to phys_free_page if the pool is full.
+; Input:  RDI = physical address of the empty page table
+; Output: none
+; Clobbers: RAX, RCX
+; -----------------------------------------------------------------------------
+._recycle_table:
+    call pgtable_cache_free
+    test rax, rax
+    jnz .recycled                   ; accepted into pool
+
+    ; Pool full — fall back to PMM
+    call phys_free_page
+
+.recycled:
     ret
 
 %endif ; LIB_MEM_VIRT_PGTABLE_UNMAP_ASM
