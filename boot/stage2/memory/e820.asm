@@ -148,10 +148,11 @@ e820_sort:
     push cx
     push bx
     mov ax, bx
-    mov dx, E820_ENTRY_SIZE
-    mul dx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = bx * 8
     mov si, ax
+    shl ax, 1                       ; AX = bx * 16
+    add si, ax                      ; SI = bx * 24
+    add si, E820_DEST + E820_ENTRIES_OFF
     mov di, e820_tmp
     mov cx, E820_ENTRY_SIZE
     rep movsb
@@ -170,10 +171,11 @@ e820_sort:
     push dx
     mov ax, dx
     dec ax
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = (j-1) * 8
     mov si, ax
+    shl ax, 1                       ; AX = (j-1) * 16
+    add si, ax                      ; SI = (j-1) * 24
+    add si, E820_DEST + E820_ENTRIES_OFF
 
     ; compare entry[j-1].base with tmp.base (64-bit, high dword first)
     mov eax, [si + 4]
@@ -192,10 +194,11 @@ e820_sort:
     pop dx
     push dx
     mov ax, dx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = j * 8
     mov di, ax
+    shl ax, 1                       ; AX = j * 16
+    add di, ax                      ; DI = j * 24
+    add di, E820_DEST + E820_ENTRIES_OFF
     mov cx, E820_ENTRY_SIZE
     rep movsb
 
@@ -213,10 +216,11 @@ e820_sort:
 .sort_insert:
     ; write tmp → entry[j]
     mov ax, dx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = j * 8
     mov di, ax
+    shl ax, 1                       ; AX = j * 16
+    add di, ax                      ; DI = j * 24
+    add di, E820_DEST + E820_ENTRIES_OFF
     mov si, e820_tmp
     mov cx, E820_ENTRY_SIZE
     rep movsb
@@ -267,17 +271,19 @@ e820_merge:
     push bx
     push dx
     mov ax, bx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = i * 8
     mov si, ax
+    shl ax, 1                       ; AX = i * 16
+    add si, ax                      ; SI = i * 24
+    add si, E820_DEST + E820_ENTRIES_OFF
 
     ; DI = &entry[j]
     mov ax, dx
-    mov cx, E820_ENTRY_SIZE
-    mul cx
-    add ax, E820_DEST + E820_ENTRIES_OFF
+    shl ax, 3                       ; AX = j * 8
     mov di, ax
+    shl ax, 1                       ; AX = j * 16
+    add di, ax                      ; DI = j * 24
+    add di, E820_DEST + E820_ENTRIES_OFF
 
     ; end[i] = base[i] + length[i]
     mov eax, [si + 0]
