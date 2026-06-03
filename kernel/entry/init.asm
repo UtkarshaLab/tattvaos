@@ -110,7 +110,7 @@ kernel_init:
 ; (To be replaced by actual implementations in subsequent milestones)
 ; -----------------------------------------------------------------------------
 mm_init:
-    ; TODO: Implement physical page allocator E820 parsing under lib/mem/
+    call phys_init
     ret
 
 sched_init:
