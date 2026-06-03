@@ -93,6 +93,7 @@ survive_snapshot_save:
     push rdi
     push rcx
     
+    cld                             ; Clear direction flag for forward copy
     lea rsi, [rsp + 32]             ; original stack pointer
     mov rdi, 0x9100
     mov rcx, 192                    ; 192 * 8 = 1536 bytes
