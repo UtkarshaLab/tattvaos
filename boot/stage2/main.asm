@@ -80,6 +80,9 @@ stage2_main:
 
 .cpu_done:
 
+    ; Initialize secondary cores (SMP AP Bootstrap)
+    call smp_init_cores
+
     ; -------------------------------------------------------------------------
     ; STEP 3: Detect memory map (E820)
     ; -------------------------------------------------------------------------
@@ -104,9 +107,10 @@ stage2_main:
 .mem_done:
 
     ; -------------------------------------------------------------------------
-    ; STEP 3.4: Query disk geometry for CHS fallback
+    ; STEP 3.4: Query disk geometry and EDD drive parameters
     ; -------------------------------------------------------------------------
     call disk_get_geometry
+    call disk_query_edd
 
     mov si, msg_geom_prefix
     call uart_print
@@ -412,9 +416,9 @@ boot_info_init:
     push es
 
     cld                             ; Clear direction flag for rep stosd
-    ; Zero out the 56-byte BootInfo structure (14 dwords)
+    ; Zero out the 88-byte BootInfo structure (22 dwords)
     mov edi, BOOT_INFO_ADDR
-    mov ecx, 14
+    mov ecx, 22
     xor eax, eax
     rep stosd
 
@@ -465,6 +469,15 @@ boot_info_init:
     xor eax, eax
     mov al, [best_bpp]
     mov [BOOT_INFO_FB_FORMAT], eax
+
+    ; 11. edd_params -> absolute physical address of edd_params_block
+    xor eax, eax
+    cmp byte [edd_supported], 1
+    jne .skip_edd
+    mov eax, edd_params_block
+.skip_edd:
+    mov [BOOT_INFO_EDD_ADDR], eax
+    mov dword [BOOT_INFO_EDD_ADDR + 4], 0
 
     pop es
     pop edi
