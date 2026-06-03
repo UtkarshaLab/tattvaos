@@ -159,12 +159,31 @@ virt_page_fault_handler:
     ; --- Non-Present Fault ---
     ; Check if on-demand paging VMA
     test rbx, VMA_ONDEMAND
-    jz .do_diagnostics              ; not on-demand VMA
+    jnz .on_demand_path
 
+    ; Check if ZFOD VMA
+    test rbx, VMA_ZFOD
+    jnz .zfod_path
+
+    jmp .do_diagnostics              ; not on-demand or ZFOD VMA -> panic
+
+.on_demand_path:
     ; Call handler for on-demand paging
     mov rdi, r12                    ; virtual address
     mov rsi, rax                    ; VMA pointer
     call virt_handle_ondemand
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
+
+.zfod_path:
+    ; Call handler for Zero-Fill-on-Demand
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    mov rdx, r13                    ; error code
+    call virt_handle_zfod
     test rax, rax
     jz .do_diagnostics              ; failed -> panic
 
@@ -476,6 +495,132 @@ virt_handle_cow:
     pop rbx
     ret
 
+; -----------------------------------------------------------------------------
+; virt_handle_zfod — handles Zero-Fill-on-Demand paging
+; Input:
+;   RDI = faulting virtual address
+;   RSI = VMA pointer
+;   RDX = error code (bit 1 indicates write fault)
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM/error)
+; -----------------------------------------------------------------------------
+global virt_handle_zfod
+virt_handle_zfod:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; R12 = virtual address
+    mov r13, rsi                    ; R13 = VMA pointer
+    mov r14, rdx                    ; R14 = error code
+
+    ; Check if write fault (bit 1 of error code)
+    test r14, 2                     ; write fault?
+    jnz .write_fault
+
+    ; --- Read Fault: Map to Shared Zero Page ---
+    ; 1. Check if shared zero page is allocated
+    mov rax, [zero_page_addr]
+    test rax, rax
+    jnz .map_shared_zero
+
+    ; 2. Allocate the shared zero page
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov [zero_page_addr], rax
+
+    ; 3. Zero out the shared zero page
+    mov rdi, rax
+    mov rsi, 4096
+    call memzero
+
+.map_shared_zero:
+    mov r15, [zero_page_addr]       ; R15 = zero page physical address
+
+    ; 4. Map it as read-only with PAGE_COW
+    mov rdx, [r13 + 16]             ; RDX = vma->flags
+    xor rbx, rbx                    ; RBX = mapping flags
+    or rbx, PAGE_COW                ; set COW flag
+
+    test rdx, VMA_USER
+    jz .read_no_user
+    or rbx, PAGE_USER
+.read_no_user:
+
+    test rdx, VMA_EXEC
+    jnz .read_is_exec
+    mov rcx, PAGE_NX
+    or rbx, rcx
+.read_is_exec:
+
+    mov rdi, r12
+    and rdi, -4096                  ; align virtual address to page
+    mov rsi, r15                    ; physical address
+    mov rdx, rbx                    ; flags
+    call virt_map
+    test rax, rax
+    jz .fail
+
+    mov rax, 1                      ; success
+    jmp .exit
+
+.write_fault:
+    ; --- Write Fault: Allocate Private Zeroed Page Directly ---
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov r15, rax                    ; R15 = new physical page
+
+    ; 2. Zero-out the new page
+    mov rdi, r15
+    mov rsi, 4096
+    call memzero
+
+    ; 3. Map with writable permission
+    mov rdx, [r13 + 16]             ; RDX = vma->flags
+    xor rbx, rbx                    ; RBX = mapping flags
+    or rbx, PAGE_WRITABLE           ; set writable flag
+
+    test rdx, VMA_USER
+    jz .write_no_user
+    or rbx, PAGE_USER
+.write_no_user:
+
+    test rdx, VMA_EXEC
+    jnz .write_is_exec
+    mov rcx, PAGE_NX
+    or rbx, rcx
+.write_is_exec:
+
+    mov rdi, r12
+    and rdi, -4096                  ; align virtual address
+    mov rsi, r15                    ; physical address
+    mov rdx, rbx                    ; flags
+    call virt_map
+    test rax, rax
+    jz .map_fail
+
+    mov rax, 1                      ; success
+    jmp .exit
+
+.map_fail:
+    mov rdi, r15
+    call phys_free_page
+.fail:
+    xor rax, rax                    ; failure
+
+.exit:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
 section .data
 
 msg_pf_prefix:          db "[#PF] Page Fault at ", 0
@@ -493,5 +638,9 @@ msg_comma_space:        db ", ", 0
 msg_pf_details_end:     db ")", 0x0D, 0x0A, 0
 
 msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
+
+align 8
+global zero_page_addr
+zero_page_addr:         dq 0
 
 %endif ; LIB_MEM_VIRT_PF_ASM
