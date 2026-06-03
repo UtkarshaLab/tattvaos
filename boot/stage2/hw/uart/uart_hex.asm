@@ -232,11 +232,6 @@ uart_print_hex64:
     cmp rcx, 0
     jge .loop64
 
-    ; print last nibble
-    and rax, 0x0F
-    mov al, [hex_chars + eax]
-    call uart_putc_64
-
     pop rdx
     pop rcx
     pop rax
