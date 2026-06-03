@@ -187,6 +187,36 @@ longmode_64:
 
     call kernel_load                ; copy kernel from KERNEL_TEMP → KERNEL_LOAD
 
+    ; Copy initrd to 32MB if loaded
+    xor rax, rax
+    mov al, [rel initrd_loaded]
+    test al, al
+    jz .skip_initrd_copy
+
+    mov rsi, 0x40000                ; source: 0x40000 (loaded in real mode segment 0x4000)
+    mov rdi, 0x2000000              ; destination: 32MB mark
+    xor rcx, rcx
+    mov ecx, [rel initrd_size]
+    add rcx, 7
+    shr rcx, 3                      ; quadword count
+    cld
+    rep movsq
+
+    ; Populate BootInfo fields
+    mov rdi, BOOT_INFO_ADDR
+    mov qword [rdi + 56], 0x2000000 ; BOOT_INFO_INITRD_ADDR
+    xor rax, rax
+    mov eax, [rel initrd_size]
+    mov [rdi + 64], rax             ; BOOT_INFO_INITRD_SIZE
+    jmp .initrd_done
+
+.skip_initrd_copy:
+    mov rdi, BOOT_INFO_ADDR
+    mov qword [rdi + 56], 0
+    mov qword [rdi + 64], 0
+
+.initrd_done:
+
     ; 1. Verify ULF magic number at KERNEL_LOAD (0x100000)
     mov eax, [KERNEL_LOAD]          ; load first dword (magic)
     cmp eax, 0x00464C55             ; check if it matches "ULF\0"
@@ -230,6 +260,9 @@ longmode_64:
     ; 5. Print success and dynamic jump
     mov rsi, msg_kernel_ok
     call uart_print_64
+
+    ; Perform Measured Boot TPM measurements
+    call tpm_measure_all
 
     ; Save the pristine state snapshot and register the panic vector
     extern survive_snapshot_save
