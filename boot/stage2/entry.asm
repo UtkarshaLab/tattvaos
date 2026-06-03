@@ -149,6 +149,18 @@ stage2_entry:
 %include "tests/test_a20.asm"
 %include "tests/test_paging.asm"
 %include "tests/test_e820.asm"
+
+; survive submodule
+%include "survive/snapshot.asm"
+%include "survive/checksum.asm"
+%include "survive/hide.asm"
+%include "survive/vector.asm"
+%include "survive/wakeup.asm"
+%include "survive/diff.asm"
+%include "survive/recover.asm"
+%include "survive/reset.asm"
+%include "survive/log/log.asm"
+
 %include "boot_drive.asm"
 
 
