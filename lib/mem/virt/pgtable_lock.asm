@@ -41,18 +41,20 @@ pgtable_lock_acquire:
     add rax, rcx                    ; RAX = &lock_byte
 
 .spin:
-    ; Try to atomically set the lock byte from 0 to 1
-    lock bts qword [rax], 0         ; test and set bit 0
-    jnc .acquired                   ; CF=0 means bit was 0 (unlocked), now locked
-
+    ; Try to atomically set the lock byte to 1 by swapping
+    mov al, 1
+    xchg [rax], al                  ; swap AL and lock byte (implicit LOCK)
+    test al, al                     ; check if it was 0 (unlocked)
+    jz .acquired                    ; old value was 0 -> acquired!
+ 
     ; Lock is held by another core — spin with PAUSE
 .wait:
     pause                           ; hint to CPU: spin-wait loop
-    test byte [rax], 1              ; re-read lock without bus lock
-    jnz .wait                       ; still held, keep spinning
-
+    cmp byte [rax], 0               ; re-read lock without bus lock
+    jne .wait                       ; still held, keep spinning
+ 
     jmp .spin                       ; lock released, try again
-
+ 
 .acquired:
     ret
 
