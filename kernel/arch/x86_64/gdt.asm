@@ -115,10 +115,10 @@ kernel_gdt:
     dq 0x00209A0000000000           ; Access=0x9A (Execute/Read, DPL=0, Code), Flags=0x2 (L=1)
     ; Descriptor 2: Kernel Data 64 (0x10)
     dq 0x0000920000000000           ; Access=0x92 (Read/Write, DPL=0, Data)
-    ; Descriptor 3: User Code 64 (0x18)
-    dq 0x0020FA0000000000           ; Access=0xFA (Execute/Read, DPL=3, Code), Flags=0x2 (L=1)
-    ; Descriptor 4: User Data 64 (0x20)
+    ; Descriptor 3: User Data 64 (0x18)
     dq 0x0000F20000000000           ; Access=0xF2 (Read/Write, DPL=3, Data)
+    ; Descriptor 4: User Code 64 (0x20)
+    dq 0x0020FA0000000000           ; Access=0xFA (Execute/Read, DPL=3, Code), Flags=0x2 (L=1)
     ; Descriptor 5-6: TSS Descriptor (0x28) (16 bytes, initialized dynamically)
     dq 0
     dq 0
