@@ -24,21 +24,22 @@ stage2/stage2.bin: stage2/entry.asm
 		-i . \
 		-o stage2/stage2.bin
 
-# Kernel stub
-$(KERNEL_DIR)/kernel_stub.bin: $(KERNEL_DIR)/kernel_stub.asm
-	$(ASM) -f bin $(KERNEL_DIR)/kernel_stub.asm \
-		-o $(KERNEL_DIR)/kernel_stub.bin
-	python3 -c "import struct; f='$(KERNEL_DIR)/kernel_stub.bin'; d=bytearray(open(f,'rb').read()); struct.pack_into('<Q',d,16,0); s=sum(struct.unpack('<Q',d[i:i+8].ljust(8,b'\0'))[0] for i in range(0,len(d),8))&0xFFFFFFFFFFFFFFFF; struct.pack_into('<Q',d,16,s); open(f,'wb').write(d)"
+# Kernel
+$(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm $(KERNEL_DIR)/entry/init.asm $(KERNEL_DIR)/entry/main.asm $(KERNEL_DIR)/drivers/serial/uart.asm
+	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
+		-i $(KERNEL_DIR)/ \
+		-o $(KERNEL_DIR)/kernel.bin
+	python3 -c "import struct; f='$(KERNEL_DIR)/kernel.bin'; d=bytearray(open(f,'rb').read()); struct.pack_into('<Q',d,16,0); s=sum(struct.unpack('<Q',d[i:i+8].ljust(8,b'\0'))[0] for i in range(0,len(d),8))&0xFFFFFFFFFFFFFFFF; struct.pack_into('<Q',d,16,s); open(f,'wb').write(d)"
 
 # Disk image layout:
 #   Sector 0       = stage1 (MBR, 512 bytes)
 #   Sector 1-64    = stage2 (up to 32KB)
 #   Sector 65+     = kernel (seek=65 = CHS sector 66)
-boot.img: stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin
+boot.img: stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel.bin
 	dd if=/dev/zero of=boot.img bs=512 count=2880
 	dd if=stage1/stage1.bin of=boot.img conv=notrunc
 	dd if=stage2/stage2.bin of=boot.img bs=512 seek=1 conv=notrunc
-	dd if=$(KERNEL_DIR)/kernel_stub.bin of=boot.img bs=512 seek=65 conv=notrunc
+	dd if=$(KERNEL_DIR)/kernel.bin of=boot.img bs=512 seek=65 conv=notrunc
 
 # Enforce 512 byte MBR size — never disable this
 check: stage1/stage1.bin
@@ -81,4 +82,4 @@ test: boot.img
 	bash tests/run_all.sh
 
 clean:
-	rm -f boot.img stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel_stub.bin uefi/entry.obj uefi/BOOTX64.EFI
+	rm -f boot.img stage1/stage1.bin stage2/stage2.bin $(KERNEL_DIR)/kernel.bin uefi/entry.obj uefi/BOOTX64.EFI
