@@ -19,7 +19,8 @@ STAGE1_RELOC    equ 0x0600      ; MBR relocates self here
 STAGE2_LOAD     equ 0x8000      ; stage2 loads here
 KERNEL_LOAD     equ 0x100000    ; kernel loads at 1MB mark
 KERNEL_TEMP     equ 0x20000     ; temporary real-mode buffer for BIOS load
-KERNEL_SECTOR   equ 18          ; CHS sector (1-indexed) where kernel starts on disk
+KERNEL_LBA      equ 65          ; starting LBA sector for the kernel
+KERNEL_SECTOR   equ (KERNEL_LBA + 1) ; CHS sector (1-indexed) where kernel starts on disk (LBA 65 -> CHS 66)
 KERNEL_SECTORS  equ 64          ; number of sectors to read (64 × 512 = 32KB)
 STACK_REAL      equ 0x7C00      ; real mode stack top (grows down)
 STACK_PROT      equ 0x9C000     ; protected mode stack top
@@ -42,7 +43,7 @@ PAGING_PD3      equ 0x15000     ; PD for 3GB - 4GB
 ; -----------------------------------------------------------------------------
 ; Stage2 load size
 ; -----------------------------------------------------------------------------
-STAGE2_SECTORS  equ 16          ; number of 512-byte sectors to load
+STAGE2_SECTORS  equ 64          ; number of 512-byte sectors to load
                                 ; 16 sectors = 8KB for stage2
                                 ; increase if stage2 grows beyond 8KB
 
