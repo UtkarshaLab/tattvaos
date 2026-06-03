@@ -25,7 +25,7 @@ KERNEL_SECTORS  equ 64          ; number of sectors to read (64 × 512 = 32KB)
 STACK_REAL      equ 0x7C00      ; real mode stack top (grows down)
 STACK_PROT      equ 0x9C000     ; protected mode stack top
 STACK_LONG      equ 0x9C000     ; long mode stack top
-SURVIVE_PAGE    equ 0x9000      ; panic snapshot page (hidden from E820)
+SURVIVE_PAGE    equ 0x90000     ; panic snapshot page (hidden from E820)
 PANIC_VECTOR    equ 0x500       ; panic handler address written here
 E820_DEST       equ 0x6000      ; E820 memory map stored here
 FEATURES_DEST   equ 0x5000      ; CPU feature flags stored here
