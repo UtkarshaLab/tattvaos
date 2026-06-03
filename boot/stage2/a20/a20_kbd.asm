@@ -66,21 +66,35 @@ a20_kbd:
     ret
 
 ; -----------------------------------------------------------------------------
-; a20_kbd_wait_input — wait until input buffer (port 0x64 bit 1) is empty (0)
+; a20_kbd_wait_input — wait until input buffer is empty, with timeout
 ; -----------------------------------------------------------------------------
 a20_kbd_wait_input:
+    push cx
+    xor cx, cx                      ; 65536 retries max
+.loop:
     in al, 0x64
     test al, 0x02                   ; bit 1 set = input buffer full
-    jnz a20_kbd_wait_input          ; wait until 0
+    jz .done
+    dec cx
+    jnz .loop
+.done:
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
-; a20_kbd_wait_output — wait until output buffer (port 0x64 bit 0) is full (1)
+; a20_kbd_wait_output — wait until output buffer is full, with timeout
 ; -----------------------------------------------------------------------------
 a20_kbd_wait_output:
+    push cx
+    xor cx, cx                      ; 65536 retries max
+.loop:
     in al, 0x64
     test al, 0x01                   ; bit 0 clear = output buffer empty
-    jz a20_kbd_wait_output          ; wait until 1
+    jnz .done
+    dec cx
+    jnz .loop
+.done:
+    pop cx
     ret
 
 %endif ; A20_KBD_ASM
