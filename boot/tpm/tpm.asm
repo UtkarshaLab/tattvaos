@@ -103,14 +103,15 @@ tpm_extend_pcr:
     mov dword [rdx], 0x40            ; commandReady
 
     ; Prepare command packet on stack
-    ; Total size of PCR Extend command packet is 62 bytes
+    ; Total size of PCR Extend command packet is 65 bytes:
+    ; tag(2) + size(4) + cc(4) + pcr(4) + auth_sz(4) + sess_h(4) + nonce_sz(2) + attrs(1) + hmac_sz(2) + dig_cnt(4) + alg(2) + digest(32)
     sub rsp, 80                      ; allocate stack buffer for command packet
     mov rdi, rsp                     ; RDI = command buffer
 
     ; Tag (0x8002) - Big Endian
     mov word [rdi], 0x0280           ; swap 0x8002
-    ; Command size (62 bytes = 0x0000003E) - Big Endian
-    mov dword [rdi + 2], 0x3E000000  ; swap 62
+    ; Command size (65 bytes = 0x00000041) - Big Endian
+    mov dword [rdi + 2], 0x41000000  ; swap 65
     ; Command Code (TPM_CC_PCR_Extend = 0x00000182) - Big Endian
     mov dword [rdi + 6], 0x82010000  ; swap 0x182
     ; PCR index (R12D) - Big Endian
@@ -144,16 +145,10 @@ tpm_extend_pcr:
     mov rdx, TPM_STS
 .wait_ready:
     mov eax, [rdx]
-    test eax, 0x40                   ; commandReady? (or expect?)
+    test eax, 0x40                   ; commandReady?
     jz .wait_ready
 
-    ; Write 65 bytes (62 command bytes + padding/safety check)
-    ; Wait, command size is exactly 65 bytes:
-    ; tag(2) + size(4) + code(4) + pcr(4) + sess_sz(4) + sess_h(4) + nonce_sz(2) + sess_attr(1) + auth_sz(2) + dig_cnt(4) + alg(2) + digest(32)
-    ; 2+4+4+4+4+4+2+1+2+4+2+32 = 65 bytes
-    ; Let's adjust command size inside packet:
-    ; Command size = 65 bytes (0x00000041)
-    mov dword [rsp + 2], 0x41000000  ; swap 65
+    ; Write 65-byte command packet to FIFO
 
     lea rsi, [rsp]
     mov rcx, 65
@@ -165,7 +160,7 @@ tpm_extend_pcr:
 
     ; 4. Execute command
     mov rdx, TPM_STS
-    mov dword [rdx], 0x20            ; stsValid / execute (bit 5)
+    mov dword [rdx], 0x20            ; tpmGo (bit 5) — trigger command execution
 
     ; Wait for execution (optionally wait for status response)
     mov ecx, 10000
