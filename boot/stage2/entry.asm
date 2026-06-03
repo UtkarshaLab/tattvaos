@@ -151,6 +151,9 @@ stage2_entry:
 %include "tests/test_a20.asm"
 %include "tests/test_paging.asm"
 %include "tests/test_e820.asm"
+%include "tests/test_uart.asm"
+%include "tests/test_fat32.asm"
+%include "tests/test_survive.asm"
 
 ; survive submodule
 %include "survive/snapshot.asm"
