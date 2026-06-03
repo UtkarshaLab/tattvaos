@@ -8,6 +8,9 @@
 ; Author:  Utkarsha Labs
 ; =============================================================================
 
+%ifndef CONFIG_ASM
+%define CONFIG_ASM
+
 ; -----------------------------------------------------------------------------
 ; Memory layout
 ; -----------------------------------------------------------------------------
@@ -84,3 +87,21 @@ DISK_RETRY      equ 3           ; retry count before giving up on disk read
 ; -----------------------------------------------------------------------------
 VGA_BUFFER      equ 0xB8000     ; VGA text mode buffer
 VGA_WHITE       equ 0x07        ; white text on black background
+
+; -----------------------------------------------------------------------------
+; BootInfo structure layout (at physical address 0x7000)
+; -----------------------------------------------------------------------------
+BOOT_INFO_ADDR       equ 0x7000
+BOOT_INFO_E820_ADDR  equ 0x7000     ; dq: physical address of E820 entries
+BOOT_INFO_E820_COUNT equ 0x7008     ; dd: number of E820 entries
+BOOT_INFO_DRIVE      equ 0x700C     ; dd: boot drive number
+BOOT_INFO_FEATURES   equ 0x7010     ; dd: CPU feature flags
+BOOT_INFO_RESERVED   equ 0x7014     ; dd: reserved/padding
+BOOT_INFO_ACPI_RSDP  equ 0x7018     ; dq: ACPI RSDP physical address
+BOOT_INFO_FB_ADDR    equ 0x7020     ; dq: framebuffer physical address
+BOOT_INFO_FB_WIDTH   equ 0x7028     ; dd: framebuffer width
+BOOT_INFO_FB_HEIGHT  equ 0x702C     ; dd: framebuffer height
+BOOT_INFO_FB_PITCH   equ 0x7030     ; dd: framebuffer pitch
+BOOT_INFO_FB_FORMAT  equ 0x7034     ; dd: framebuffer format
+
+%endif ; CONFIG_ASM
