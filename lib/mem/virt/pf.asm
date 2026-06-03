@@ -16,10 +16,32 @@
 
 section .text
 
-; External symbol from interrupts.asm for unhandled fallbacks
+; VMA Flags (matching virt.asm design)
+VMA_READ        equ (1 << 0)
+VMA_WRITE       equ (1 << 1)
+VMA_EXEC        equ (1 << 2)
+VMA_USER        equ (1 << 3)
+VMA_COW         equ (1 << 4)
+VMA_ZFOD        equ (1 << 5)
+VMA_STACK       equ (1 << 6)
+VMA_ONDEMAND    equ (1 << 7)
+
+; Page Table Flags (from pgtable.asm)
+PAGE_PRESENT    equ (1 << 0)
+PAGE_WRITABLE   equ (1 << 1)
+PAGE_USER       equ (1 << 2)
+PAGE_NX         equ (1 << 63)
+
+; External symbols
 extern common_isr_handler
 extern uart_print_str
 extern uart_print_hex64
+extern vma_find
+extern phys_alloc_page
+extern phys_free_page
+extern memzero
+extern memcpy
+extern virt_map
 
 ; -----------------------------------------------------------------------------
 ; page_fault_isr — Low-level assembly entry point for Vector 14 (#PF)
@@ -117,6 +139,36 @@ virt_page_fault_handler:
     mov r12, rdi                    ; R12 = vaddr
     mov r13, rsi                    ; R13 = error_code
 
+    ; 1. Find VMA containing the address
+    mov rdi, r12
+    call vma_find                   ; RAX = VMA pointer, or 0 if not found
+    test rax, rax
+    jz .do_diagnostics              ; no VMA, invalid address -> panic
+
+    mov rbx, [rax + 16]             ; RBX = vma->flags (VMA structure: start, end, flags)
+                                    ; Wait, let's verify offset of .flags in vma_t:
+                                    ; start (8 bytes), end (8 bytes) -> flags is at offset 16!
+
+    ; 2. Check if it is an on-demand VMA
+    test rbx, VMA_ONDEMAND
+    jz .do_diagnostics              ; not on-demand VMA
+
+    ; 3. Check if fault was Present violation (bit 0 = 1)
+    test r13, 1                     ; Present bit set?
+    jnz .do_diagnostics             ; protection fault -> not standard ZFOD/on-demand paging
+
+    ; 4. Call handler for on-demand paging
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    call virt_handle_ondemand
+    test rax, rax
+    jz .do_diagnostics              ; OOM during map -> panic
+
+    ; Successfully handled!
+    mov rax, 1
+    jmp .exit
+
+.do_diagnostics:
     ; Print "#PF: Page Fault at "
     mov rsi, msg_pf_prefix
     call uart_print_str
@@ -193,9 +245,91 @@ virt_page_fault_handler:
     mov rsi, msg_pf_details_end
     call uart_print_str
 
-    ; Return 0 (unhandled) for Subfeature 6.1
+    ; Return 0 (unhandled)
     xor rax, rax
 
+.exit:
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; virt_handle_ondemand — allocates, mock-loads, and maps an on-demand page
+; Input:
+;   RDI = faulting virtual address
+;   RSI = VMA pointer
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM)
+; -----------------------------------------------------------------------------
+global virt_handle_ondemand
+virt_handle_ondemand:
+    push rbx
+    push r12
+    push r13
+    push r14
+
+    mov r12, rdi                    ; R12 = virtual address
+    mov r13, rsi                    ; R13 = VMA pointer
+
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .oom
+    mov r14, rax                    ; R14 = new physical page base
+
+    ; 2. Zero-out the new page
+    mov rdi, r14
+    mov rsi, 4096
+    call memzero
+
+    ; 3. Write mock loaded file data
+    mov rdi, r14
+    mov rsi, msg_pf_mock_data
+    mov rdx, 31                     ; length of msg_pf_mock_data
+    call memcpy
+
+    ; Write the virtual address at offset 32 to verify
+    mov [r14 + 32], r12
+
+    ; 4. Map the physical page with VMA permissions
+    mov rdx, [r13 + 16]             ; RDX = vma->flags
+    xor rbx, rbx                    ; RBX = mapping flags
+
+    test rdx, VMA_WRITE
+    jz .no_write
+    or rbx, PAGE_WRITABLE
+.no_write:
+
+    test rdx, VMA_USER
+    jz .no_user
+    or rbx, PAGE_USER
+.no_user:
+
+    test rdx, VMA_EXEC
+    jnz .is_exec
+    mov rcx, PAGE_NX
+    or rbx, rcx
+.is_exec:
+
+    mov rdi, r12
+    and rdi, -4096                  ; align virtual address to page
+    mov rsi, r14                    ; physical address
+    mov rdx, rbx                    ; flags
+    call virt_map
+    test rax, rax
+    jz .map_fail
+
+    mov rax, 1                      ; return 1 (success)
+    jmp .done
+
+.map_fail:
+    mov rdi, r14
+    call phys_free_page
+.oom:
+    xor rax, rax                    ; return 0 (failure)
+.done:
+    pop r14
     pop r13
     pop r12
     pop rbx
@@ -216,5 +350,7 @@ msg_pf_data:            db "Data Access", 0
 msg_pf_instruction:     db "Instruction Fetch", 0
 msg_comma_space:        db ", ", 0
 msg_pf_details_end:     db ")", 0x0D, 0x0A, 0
+
+msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
 
 %endif ; LIB_MEM_VIRT_PF_ASM
