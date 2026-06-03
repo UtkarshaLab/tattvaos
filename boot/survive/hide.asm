@@ -140,9 +140,9 @@ hide_survive_page:
     mov [es:di], eax                ; base low = orig_base
     mov dword [es:di + 4], 0        ; base high = 0
     
-    mov r8d, 0x9000
-    sub r8d, eax                    ; R8D = 0x9000 - orig_base
-    mov [es:di + 8], r8d            ; length low
+    mov ebx, 0x9000
+    sub ebx, eax                    ; EBX = 0x9000 - orig_base
+    mov [es:di + 8], ebx            ; length low
     mov dword [es:di + 12], 0       ; length high
     mov dword [es:di + 16], 1       ; type = USABLE
     mov dword [es:di + 20], 1       ; ext attributes
