@@ -110,7 +110,7 @@ stage2_main:
 
     mov al, '5'
     call uart_putc
-    call hide_survive_page          ; hide/reserve 0x9000-0xA000 from E820 map
+    call hide_survive_page          ; hide/reserve SURVIVE_PAGE from E820 map
 
     mov al, '6'
     call uart_putc
