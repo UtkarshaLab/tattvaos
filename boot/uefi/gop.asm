@@ -59,9 +59,13 @@ uefi_gop_init:
 
     ; Retrieve the located GOP interface pointer
     mov rcx, [rbp - 8]              ; RCX = GOP interface pointer
+    test rcx, rcx
+    jz .failed
 
     ; Get Mode: GOP->Mode (offset 24)
     mov rdx, [rcx + GOP_MODE_OFFSET]
+    test rdx, rdx
+    jz .failed
 
     ; Get Frame Buffer Base Address: Mode->FrameBufferBase (offset 24 of Mode)
     mov rax, [rdx + GOP_MODE_FB_BASE]
@@ -73,15 +77,25 @@ uefi_gop_init:
 
     ; Get Mode Info: Mode->Info (offset 8 of Mode)
     mov rdx, [rdx + GOP_MODE_INFO]
+    test rdx, rdx
+    jz .failed
     mov r8d, [rdx + GOP_INFO_HORIZ_RES]
     mov [uefi_fb_width], r8d
     mov r9d, [rdx + GOP_INFO_VERT_RES]
     mov [uefi_fb_height], r9d
 
+    ; Get PixelsPerScanLine (offset 32 of Mode Info structure)
+    mov eax, [rdx + 32]
+    shl eax, 2                      ; multiply by 4 bytes per pixel (32bpp)
+    mov [uefi_fb_pitch], eax
+    mov dword [uefi_fb_format], 32  ; 32bpp format
+
     ; Format output: RDX = width in high 32 bits, height in low 32 bits
     shl r8, 32
     or r8, r9
     mov rdx, r8
+
+    mov rax, [uefi_fb_base]         ; Restore RAX to physical address of frame buffer
     jmp .done
 
 .failed:
@@ -100,5 +114,7 @@ uefi_fb_base:   dq 0
 uefi_fb_size:   dq 0
 uefi_fb_width:  dd 0
 uefi_fb_height: dd 0
+uefi_fb_pitch:  dd 0
+uefi_fb_format: dd 0
 
 %endif ; UEFI_GOP_ASM
