@@ -75,31 +75,4 @@ tpm_measure_all:
     pop rsi
     ret
 
-; Helper to print null-terminated string to COM1 in 64-bit mode
-uart_println_64:
-    push rsi
-    push rbx
-    push rdx
-.print_loop:
-    lodsb
-    test al, al
-    jz .print_done
-    mov bl, al                       ; save character in BL
-    ; Wait for TX buffer empty
-    mov dx, 0x3F8 + 5               ; Line Status Register
-.wait_tx:
-    in al, dx
-    test al, 0x20                    ; TX holding register empty?
-    jz .wait_tx
-    ; Send character
-    mov dx, 0x3F8                    ; Data register
-    mov al, bl                       ; restore character
-    out dx, al
-    jmp .print_loop
-.print_done:
-    pop rdx
-    pop rbx
-    pop rsi
-    ret
-
 %endif ; TPM_MEASURE_ASM
