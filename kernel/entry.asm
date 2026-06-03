@@ -36,6 +36,7 @@ kernel_entry:
 ; Include Drivers & Libraries (for early boot)
 ; -----------------------------------------------------------------------------
 %include "drivers/serial/uart.asm"
+%include "arch/x86_64/gdt.asm"
 %include "arch/x86_64/interrupts.asm"
 
 align 8
