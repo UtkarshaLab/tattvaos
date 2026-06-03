@@ -32,6 +32,7 @@ hide_survive_page:
     pusha
     push es
 
+    cld                             ; Clear direction flag for forward copy
     xor ax, ax
     mov es, ax
 
