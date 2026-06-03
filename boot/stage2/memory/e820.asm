@@ -306,12 +306,19 @@ e820_merge:
     ; compare end[i] with base[j]
     mov ecx, [di + 4]               ; base[j] high
     mov edx, [di + 0]               ; base[j] low
-
     cmp ebx, ecx
-    jb .merge_no_overlap
-    ja .merge_overlap
+    jb .merge_no_overlap            ; end[i] < base[j] (high) -> no overlap
+    ja .merge_overlap               ; end[i] > base[j] (high) -> real overlap
+
     cmp eax, edx
-    jb .merge_no_overlap
+    jb .merge_no_overlap            ; end[i] < base[j] (low) -> no overlap
+    ja .merge_overlap               ; end[i] > base[j] (low) -> real overlap
+
+    ; end[i] == base[j] (touching exactly). Only merge if they have the same type.
+    mov eax, [si + 16]              ; type[i]
+    cmp eax, [di + 16]              ; type[j]
+    je .merge_extend                ; same type -> merge by extending length
+    jmp .merge_no_overlap           ; different type -> do not merge
 
 .merge_overlap:
     ; non-usable type wins
