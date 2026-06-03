@@ -34,6 +34,7 @@
 %include "lib/mem/virt/virt.asm"
 %include "lib/mem/virt/thp.asm"
 %include "lib/mem/virt/pf.asm"
+%include "lib/mem/virt/replacement.asm"
 
 %endif ; LIB_MEM_MEM_ASM
 
