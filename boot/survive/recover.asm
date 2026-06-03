@@ -159,6 +159,7 @@ longmode_recovery:
     lidt [0x90F0]
 
     ; Restore Stack contents
+    cld                             ; Clear direction flag for forward copy
     mov rdi, [0x9038]               ; RDI = pristine RSP
     mov rsi, 0x9100                 ; RSI = stack backup
     mov rcx, 192                    ; 192 * 8 = 1536 bytes
