@@ -302,14 +302,6 @@ boot/
 │                                     MUST call ExitBootServices before
 │                                     any kernel memory operations
 │
-├── riscv/                          ← RISC-V OpenSBI boot path
-│   │                                 build after x86-64 path works
-│   │
-│   ├── entry.asm                   ← OpenSBI entry point
-│   ├── sbi.asm                     ← SBI ecall wrappers
-│   ├── sbi_console.asm             ← SBI console output
-│   └── handoff.asm                 ← jump to kernel
-│
 ├── survive/                        ← Panic recovery — unique to Tattva
 │   │                                 build after basic boot works
 │   │

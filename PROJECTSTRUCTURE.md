@@ -99,10 +99,6 @@ boot/
 │   ├── protocol.asm        ← UEFI protocol handling
 │   └── handoff.asm         ← handoff to kernel
 │
-├── riscv/                  ← RISC-V OpenSBI boot path
-│   ├── entry.asm
-│   └── sbi.asm             ← SBI calls
-│
 ├── survive/                ← Panic recovery — unique to Tattva
 │   ├── snapshot.asm        ← hardware state snapshot
 │   ├── hide.asm            ← hide page from e820
