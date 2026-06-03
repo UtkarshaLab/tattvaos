@@ -41,6 +41,13 @@ kernel_init:
     mov rsi, msg_crlf
     call uart_print_str
 
+    ; 4b. Initialize Exception Handlers (IDT)
+    mov rsi, msg_init_idt
+    call uart_print_str
+    call interrupts_init
+    mov rsi, msg_ok
+    call uart_print_str
+
     ; 5. Initialize Memory Management
     mov rsi, msg_init_mm
     call uart_print_str
@@ -104,6 +111,7 @@ boot_info_ptr:      dq 0
 msg_kernel_boot:     db "Tattva Kernel Booting...", 0x0D, 0x0A, 0
 msg_boot_info_loc:   db "BootInfo Pointer: ", 0
 msg_gs_base_loc:     db "GS Base register: ", 0
+msg_init_idt:        db "Initializing Exception Handlers (IDT)... ", 0
 msg_init_mm:         db "Initializing MM (Physical Allocator)... ", 0
 msg_init_sched:      db "Initializing Scheduler... ", 0
 msg_init_drivers:    db "Initializing Device Drivers... ", 0
