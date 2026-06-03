@@ -27,6 +27,7 @@
 %include "lib/mem/virt/tlb_shootdown.asm"
 %include "lib/mem/virt/pgtable_cache.asm"
 %include "lib/mem/virt/pgtable_lock.asm"
+%include "lib/mem/virt/pgtable_split.asm"
 %include "lib/mem/virt/pgtable_map.asm"
 %include "lib/mem/virt/pgtable_unmap.asm"
 %include "lib/mem/virt/pgtable_walk.asm"
