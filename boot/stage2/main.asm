@@ -297,8 +297,12 @@ stage2_main_pm32:
 ; =============================================================================
 boot_info_init:
     push eax
+    push ebx
     push ecx
+    push edx
+    push esi
     push edi
+    push es
 
     ; Zero out the 56-byte BootInfo structure (14 dwords)
     mov edi, BOOT_INFO_ADDR
@@ -324,8 +328,17 @@ boot_info_init:
     mov eax, [FEATURES_DEST]
     mov [BOOT_INFO_FEATURES], eax
 
+    ; 5. acpi_rsdp -> call acpi_find_rsdp
+    call acpi_find_rsdp
+    mov [BOOT_INFO_ACPI_RSDP], eax
+    mov dword [BOOT_INFO_ACPI_RSDP + 4], 0
+
+    pop es
     pop edi
+    pop esi
+    pop edx
     pop ecx
+    pop ebx
     pop eax
     ret
 
