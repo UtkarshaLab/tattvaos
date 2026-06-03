@@ -27,6 +27,22 @@ fs_load_kernel:
     push edi
     push es
 
+    ; Detect LBA support dynamically
+    push bx
+    mov ah, 0x41
+    mov bx, 0x55AA
+    mov dl, [boot_drive]
+    int 0x13
+    jc .no_lba
+    cmp bx, 0xAA55
+    jne .no_lba
+    mov byte [lba_supported], 1
+    jmp .lba_detect_done
+.no_lba:
+    mov byte [lba_supported], 0
+.lba_detect_done:
+    pop bx
+
     ; Print FS Init message
     mov si, msg_fs_init
     call uart_print
@@ -335,65 +351,7 @@ fs_load_kernel:
     mov ax, 1
     jmp .done
 
-; Helper to find a file in FAT32 root directory
-; Input: EAX = starting cluster of directory
-;        DX = pointer to 11-char name string
-; Output: EAX = starting cluster of file, 0 if not found
-fat32_find_file_helper:
-    push dx
-    mov cx, 0x2000
-    mov es, cx
-    xor bx, bx
-    call fs_read_cluster
-    pop dx
-    jc .not_found
-
-    xor cx, cx
-    mov cl, [sec_per_clus]
-    shl cx, 4                       ; CX = entries count
-    mov di, 0
-.entry_loop:
-    mov al, [es:di]
-    test al, al
-    jz .not_found
-    cmp al, 0xE5
-    je .next_entry
-
-    mov al, [es:di + 11]
-    test al, 0x08
-    jnz .next_entry
-    cmp al, 0x0F
-    je .next_entry
-
-    mov si, dx
-    push di
-    mov bp, 11
-.cmp_loop:
-    mov al, [es:di]
-    mov bl, [si]
-    cmp al, bl
-    jne .mismatch
-    inc di
-    inc si
-    dec bp
-    jnz .cmp_loop
-
-    pop di
-    ; Found! Extract cluster
-    mov ax, [es:di + 20]
-    shl eax, 16
-    mov ax, [es:di + 26]
-    ret
-
-.mismatch:
-    pop di
-.next_entry:
-    add di, 32
-    dec cx
-    jnz .entry_loop
-.not_found:
-    xor eax, eax
-    ret
+; (Moved fat32_find_file_helper down to maintain local label scoping)
 
 ; =============================================================================
 ; ext4 loading flow
@@ -453,6 +411,70 @@ fat32_find_file_helper:
     pop edx
     pop ecx
     pop ebx
+    ret
+
+; =============================================================================
+; Helper functions (non-local scope)
+; =============================================================================
+
+; Helper to find a file in FAT32 root directory
+; Input: EAX = starting cluster of directory
+;        DX = pointer to 11-char name string
+; Output: EAX = starting cluster of file, 0 if not found
+fat32_find_file_helper:
+    push dx
+    mov cx, 0x2000
+    mov es, cx
+    xor bx, bx
+    call fs_read_cluster
+    pop dx
+    jc .not_found
+
+    xor cx, cx
+    mov cl, [sec_per_clus]
+    shl cx, 4                       ; CX = entries count
+    mov di, 0
+.entry_loop:
+    mov al, [es:di]
+    test al, al
+    jz .not_found
+    cmp al, 0xE5
+    je .next_entry
+
+    mov al, [es:di + 11]
+    test al, 0x08
+    jnz .next_entry
+    cmp al, 0x0F
+    je .next_entry
+
+    mov si, dx
+    push di
+    mov bp, 11
+.cmp_loop:
+    mov al, [es:di]
+    mov bl, [si]
+    cmp al, bl
+    jne .mismatch
+    inc di
+    inc si
+    dec bp
+    jnz .cmp_loop
+
+    pop di
+    ; Found! Extract cluster
+    mov ax, [es:di + 20]
+    shl eax, 16
+    mov ax, [es:di + 26]
+    ret
+
+.mismatch:
+    pop di
+.next_entry:
+    add di, 32
+    dec cx
+    jnz .entry_loop
+.not_found:
+    xor eax, eax
     ret
 
 ; =============================================================================
@@ -606,6 +628,7 @@ reserved_sectors:     dw 0
 sec_per_clus:         db 0
 root_cluster:         dd 0
 kernel_start_cluster: dd 0
+lba_supported:        db 0
 
 filename_config:      db "TATTVA  CFG"
 filename_kernel:      db "KERNEL  ULF"
