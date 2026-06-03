@@ -299,6 +299,11 @@ phys_init:
     jmp .reserve_bitmap_loop
 
 .reserve_bitmap_done:
+    ; Compute initial reserved pages count: reserved = total_pages - free_pages
+    mov rax, [phys_state + phys_state_t.total_pages]
+    sub rax, [phys_state + phys_state_t.free_pages]
+    mov [phys_state + phys_state_t.reserved_pages], rax
+
     pop r10
     pop r9
     pop r8
@@ -347,6 +352,8 @@ phys_alloc_page:
 
     ; Decrement free_pages count
     dec qword [phys_state + phys_state_t.free_pages]
+    ; Increment reserved_pages count
+    inc qword [phys_state + phys_state_t.reserved_pages]
 
     ; Calculate physical address: page_index * 4096 (shl 12)
     mov rax, rdi
@@ -397,6 +404,8 @@ phys_free_page:
 
     ; Increment free_pages count
     inc qword [phys_state + phys_state_t.free_pages]
+    ; Decrement reserved_pages count
+    dec qword [phys_state + phys_state_t.reserved_pages]
 
     pop r11
     pop r10
@@ -456,6 +465,8 @@ phys_alloc_pages:
 .set_done:
     ; Update free_pages count
     sub [phys_state + phys_state_t.free_pages], r8
+    ; Update reserved_pages count
+    add [phys_state + phys_state_t.reserved_pages], r8
 
     ; Calculate physical address: start_page_index * 4096
     mov rax, r9
@@ -521,6 +532,8 @@ phys_free_pages:
 .clear_done:
     ; Update free_pages count
     add [phys_state + phys_state_t.free_pages], r8
+    ; Update reserved_pages count
+    sub [phys_state + phys_state_t.reserved_pages], r8
 
     pop r11
     pop r10
@@ -532,6 +545,69 @@ phys_free_pages:
     pop rcx
     pop rbx
     pop rax
+    ret
+
+; -----------------------------------------------------------------------------
+; phys_add_region — dynamically adds a new physical RAM region (RAM Hotplug) (1.11)
+; Input:
+;   RDI = physical base address of the region
+;   RSI = length of the region in bytes
+; Output: none
+; Clobbers: RAX, RCX, RDX, RDI, RSI
+; -----------------------------------------------------------------------------
+global phys_add_region
+phys_add_region:
+    push rbx
+    push rbp
+    
+    ; Convert base and length to page index and count
+    mov rax, rdi
+    shr rax, 12                     ; RAX = start page index
+    mov rcx, rsi
+    shr rcx, 12                     ; RCX = page count
+    
+    test rcx, rcx
+    jz .done
+
+    ; Update total_pages and free_pages counters
+    add [phys_state + phys_state_t.total_pages], rcx
+    add [phys_state + phys_state_t.free_pages], rcx
+    
+    ; Calculate new max physical address if needed
+    mov rdx, rdi
+    add rdx, rsi                    ; RDX = end address of new region
+    cmp rdx, [phys_state + phys_state_t.max_phys_addr]
+    jbe .clear_loop
+    mov [phys_state + phys_state_t.max_phys_addr], rdx
+
+.clear_loop:
+    test rcx, rcx
+    jz .done
+    
+    push rax
+    push rcx
+    mov rdi, rax
+    call bitmap_clear_bit           ; clear bit (make free)
+    pop rcx
+    pop rax
+    
+    inc rax                         ; next page index
+    dec rcx
+    jmp .clear_loop
+
+.done:
+    pop rbp
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; phys_get_stats — returns the pointer to the physical memory state structure (1.12)
+; Input:  none
+; Output: RAX = pointer to phys_state
+; -----------------------------------------------------------------------------
+global phys_get_stats
+phys_get_stats:
+    mov rax, phys_state
     ret
 
 ; -----------------------------------------------------------------------------
@@ -548,6 +624,9 @@ phys_state:
         at phys_state_t.total_pages,    dq 0
         at phys_state_t.free_pages,     dq 0
         at phys_state_t.max_phys_addr,  dq 0
+        at phys_state_t.reserved_pages, dq 0
+        at phys_state_t.swap_pages,     dq 0
+        at phys_state_t.dirty_pages,    dq 0
     iend
 
 msg_err_bitmap_oom: db "!!! KERNEL PANIC: Failed to locate free RAM above 1MB for Page Bitmap !!!", 0x0D, 0x0A, 0
