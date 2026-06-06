@@ -1,7 +1,7 @@
 ; =============================================================================
 ; Tattva OS — lib/mem/arena/arena_reset.asm
 ; =============================================================================
-; Arena Reset: Resets the bump pointer of the arena back to start.
+; Arena Reset: Resets the bump pointer back to start (Subfeature 12.2: O(1) Bulk Deallocations).
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
