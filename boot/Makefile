@@ -43,6 +43,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/thp.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/swap_device.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/swap.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/kswapd.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pf.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
