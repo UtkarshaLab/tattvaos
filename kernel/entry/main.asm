@@ -45,6 +45,8 @@ extern mtrr_get_variable
 extern mtrr_disable_variable
 extern fb_init
 extern fb_benchmark
+extern heap_active_allocator
+
 
 
 kernel_main:
@@ -1237,12 +1239,13 @@ kernel_main:
 
     mov rsi, msg_fb_test_passed_str
     call uart_print_str
-    jmp .idle
+    jmp .run_heap_test
 
 .fb_skip_test:
     mov rsi, msg_fb_skipped_str
     call uart_print_str
-    jmp .idle
+    jmp .run_heap_test
+
 
 .fb_fail_init:
     mov rsi, msg_fb_fail_init_str
@@ -1251,6 +1254,83 @@ kernel_main:
 
 .fb_fail_bench:
     mov rsi, msg_fb_fail_bench_str
+    call uart_print_str
+    jmp .panic
+
+.run_heap_test:
+    mov rsi, msg_heap_test_start
+    call uart_print_str
+
+    ; Step A: Verify that heap_active_allocator is 1 (free-list)
+    mov al, [heap_active_allocator]
+    cmp al, 1
+    jne .heap_fail_active
+
+    ; Step B: Allocate a memory block of 64 bytes
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_alloc
+    mov r12, rax                    ; R12 = pointer 1
+
+    ; Verify 16-byte alignment of R12
+    test rax, 15
+    jnz .heap_fail_align
+
+    ; Step C: Allocate a second block of 128 bytes
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_alloc2
+    mov r13, rax                    ; R13 = pointer 2
+
+    ; Verify 16-byte alignment of R13
+    test rax, 15
+    jnz .heap_fail_align2
+
+    ; Verify blocks don't overlap
+    cmp r12, r13
+    je .heap_fail_overlap
+
+    ; Step D: Free the blocks
+    mov rdi, r12
+    call heap_free
+
+    mov rdi, r13
+    call heap_free
+
+    ; Heap Allocator Test PASSED!
+    mov rsi, msg_heap_test_passed
+    call uart_print_str
+    jmp .idle
+
+.heap_fail_active:
+    mov rsi, msg_heap_fail_active_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_alloc:
+    mov rsi, msg_heap_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_align:
+    mov rsi, msg_heap_fail_align_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_alloc2:
+    mov rsi, msg_heap_fail_alloc2_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_align2:
+    mov rsi, msg_heap_fail_align2_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_overlap:
+    mov rsi, msg_heap_fail_overlap_str
     call uart_print_str
     jmp .panic
 
@@ -2051,4 +2131,15 @@ msg_fb_test_passed_str:     db "VMM Write-Combining Video Buffer mapping test PA
 msg_fb_skipped_str:         db "Write-Combining Video Buffer test skipped: No linear framebuffer.", 0x0D, 0x0A, 0
 msg_fb_fail_init_str:       db "Failure: Framebuffer mapping initialization failed.", 0x0D, 0x0A, 0
 msg_fb_fail_bench_str:      db "Failure: Framebuffer write speed benchmark failed.", 0x0D, 0x0A, 0
+
+; General-Purpose Heap Allocator messages
+msg_heap_test_start:        db "Running General-Purpose Heap Allocator Test...", 0x0D, 0x0A, 0
+msg_heap_test_passed:       db "General-Purpose Heap Allocator Test PASSED!", 0x0D, 0x0A, 0
+msg_heap_fail_active_str:   db "Failure: Heap allocator was not transitioned to free-list mode.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc_str:    db "Failure: First heap allocation (64 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_align_str:    db "Failure: First heap allocation pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc2_str:   db "Failure: Second heap allocation (128 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_align2_str:   db "Failure: Second heap allocation pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_heap_fail_overlap_str:  db "Failure: Heap allocation overlap detected.", 0x0D, 0x0A, 0
+
 
