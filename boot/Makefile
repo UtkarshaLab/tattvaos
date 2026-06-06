@@ -47,7 +47,8 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/kswapd.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pf.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
-                          $(KERNEL_DIR)/../lib/hw/ucpu/mtrr.asm
+                          $(KERNEL_DIR)/../lib/hw/ucpu/mtrr.asm \
+                          $(KERNEL_DIR)/../lib/hw/ucpu/pat.asm
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
 		-i $(KERNEL_DIR)/ -i $(KERNEL_DIR)/../ \
 		-o $(KERNEL_DIR)/kernel.bin
