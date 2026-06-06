@@ -60,6 +60,7 @@ extern kmem_cache_free
 extern kmem_cache_reap
 extern buddy_init
 extern buddy_alloc
+extern buddy_free
 extern buddy_free_heads
 extern buddy_start_addr
 extern buddy_end_addr
@@ -2234,27 +2235,10 @@ test_ctor:
     cmp al, 0x8B
     jne .buddy_fail_split_metadata
 
-    ; Clean up
-    mov rdi, [buddy_metadata]
-    call heap_free
-    mov qword [buddy_metadata], 0
-
-    mov rdi, r12
-    call heap_free
-
-    mov qword [buddy_start_addr], 0
-    mov qword [buddy_end_addr], 0
-
-    lea rdi, [buddy_free_heads]
-    mov rcx, 12
-    xor rax, rax
-    cld
-    rep stosq
-
     ; Buddy Allocator Splitting Test PASSED!
     mov rsi, msg_buddy_split_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_buddy_coalesce_test
 
 .buddy_fail_split_alloc:
     mov rsi, msg_buddy_fail_split_alloc_str
@@ -2273,6 +2257,105 @@ test_ctor:
 
 .buddy_fail_split_metadata:
     mov rsi, msg_buddy_fail_split_metadata_str
+    call uart_print_str
+    jmp .panic
+
+.run_buddy_coalesce_test:
+    mov rsi, msg_buddy_coalesce_test_start
+    call uart_print_str
+
+    ; Step A: Free the allocated Order 8 block (R15, which is A + 8MB)
+    mov rdi, r15                    ; RDI = A + 8MB
+    call buddy_free
+
+    ; Step B: Verify list heads after coalescing:
+    ; buddy_free_heads[11] = A (R13)
+    ; buddy_free_heads[9]  = A + 8MB (R13 + 8,388,608)
+    ; buddy_free_heads[8]  = NULL (0)
+    ; All other heads must be NULL.
+    xor rcx, rcx                    ; RCX = order
+.verify_coal_list_loop:
+    cmp rcx, 12
+    jae .verify_coal_list_done
+
+    lea rax, [buddy_free_heads]
+    mov rbx, [rax + rcx * 8]        ; RBX = buddy_free_heads[RCX]
+
+    cmp rcx, 11
+    je .check_coal_order_11
+    cmp rcx, 9
+    je .check_coal_order_9
+
+    ; For other orders, head must be NULL
+    test rbx, rbx
+    jnz .buddy_fail_coal_lists
+    jmp .next_coal_verify
+
+.check_coal_order_11:
+    cmp rbx, r13
+    jne .buddy_fail_coal_lists
+    jmp .next_coal_verify
+
+.check_coal_order_9:
+    mov rdx, r13
+    add rdx, 8388608                ; A + 8MB
+    cmp rbx, rdx
+    jne .buddy_fail_coal_lists
+
+.next_coal_verify:
+    inc rcx
+    jmp .verify_coal_list_loop
+
+.verify_coal_list_done:
+    ; Step C: Verify metadata array after coalescing:
+    ; index 2048 (A + 8MB) must be 0x89 (free, Order 9)
+    ; index 2304 (A + 9MB) must be 0
+    ; index 0 (A) must be 0x8B (free, Order 11)
+    mov rdx, [buddy_metadata]
+    test rdx, rdx
+    jz .buddy_fail_coal_metadata
+
+    mov al, [rdx + 2048]
+    cmp al, 0x89
+    jne .buddy_fail_coal_metadata
+
+    mov al, [rdx + 2304]
+    test al, al
+    jnz .buddy_fail_coal_metadata
+
+    mov al, [rdx + 0]
+    cmp al, 0x8B
+    jne .buddy_fail_coal_metadata
+
+    ; Step D: Clean up resources
+    mov rdi, [buddy_metadata]
+    call heap_free
+    mov qword [buddy_metadata], 0
+
+    mov rdi, r12
+    call heap_free
+
+    mov qword [buddy_start_addr], 0
+    mov qword [buddy_end_addr], 0
+
+    lea rdi, [buddy_free_heads]
+    mov rcx, 12
+    xor rax, rax
+    cld
+    rep stosq
+
+    ; Buddy Allocator Coalescing Test PASSED!
+    mov rsi, msg_buddy_coalesce_test_passed
+    call uart_print_str
+    jmp .idle
+
+.buddy_fail_coal_lists:
+    mov rsi, msg_buddy_fail_coal_lists_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_coal_metadata:
+    mov rsi, msg_buddy_fail_coal_metadata_str
     call uart_print_str
     jmp .panic
 
@@ -3235,6 +3318,12 @@ msg_buddy_fail_split_alloc_str:      db "Failure: buddy_alloc returned NULL for 
 msg_buddy_fail_split_ptr_str:        db "Failure: Allocated pointer is not at expected block address.", 0x0D, 0x0A, 0
 msg_buddy_fail_split_lists_str:      db "Failure: Buddy free lists are incorrect after block splitting.", 0x0D, 0x0A, 0
 msg_buddy_fail_split_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect after splitting.", 0x0D, 0x0A, 0
+
+; Buddy Allocator Coalescing Test Messages
+msg_buddy_coalesce_test_start:       db "Running Buddy Allocator Block Coalescing Test...", 0x0D, 0x0A, 0
+msg_buddy_coalesce_test_passed:      db "Buddy Allocator Block Coalescing Test PASSED!", 0x0D, 0x0A, 0
+msg_buddy_fail_coal_lists_str:      db "Failure: Buddy free lists are incorrect after block coalescing.", 0x0D, 0x0A, 0
+msg_buddy_fail_coal_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect after coalescing.", 0x0D, 0x0A, 0
 
 
 
