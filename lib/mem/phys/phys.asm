@@ -13,6 +13,8 @@
 
 [BITS 64]
 
+extern kswapd_check_and_reclaim
+
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -365,6 +367,9 @@ phys_alloc_page:
     push r10
     push r11
 
+    ; Check watermarks and trigger page reclamation if needed
+    call kswapd_check_and_reclaim
+
     ; Find 1 free page
     mov rdi, 1
     call bitmap_find_free
@@ -463,6 +468,11 @@ phys_alloc_pages:
     push r9
     push r10
     push r11
+
+    ; Check watermarks and trigger page reclamation if needed (preserve RDI)
+    push rdi
+    call kswapd_check_and_reclaim
+    pop rdi
 
     ; Save count in R8
     mov r8, rdi
