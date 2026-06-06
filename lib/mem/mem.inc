@@ -70,4 +70,13 @@ struc arena_t
     .current    resq 1          ; Current allocation bump pointer
 endstruc
 
+; Fixed-size pool allocator header
+struc pool_t
+    .obj_size   resq 1          ; Aligned size of each object slot
+    .capacity   resq 1          ; Max objects in this pool
+    .count      resq 1          ; Number of active allocations
+    .free_head  resq 1          ; Pointer to the first free slot
+    .memory     resq 1          ; Pointer to start of payload memory region
+endstruc
+
 %endif ; LIB_MEM_MEM_INC
