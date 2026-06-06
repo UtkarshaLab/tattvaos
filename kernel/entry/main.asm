@@ -1126,12 +1126,152 @@ kernel_main:
     ; MTRR Programming Test PASSED!
     mov rsi, msg_mtrr_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_pat_test
 
 .mtrr_skip_test:
     mov rsi, msg_mtrr_skipped_str
     call uart_print_str
+    jmp .run_pat_test
+
+.run_pat_test:
+    ; -------------------------------------------------------------
+    ; 11. Run VMM PAT Cache Configuration Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_pat_test_start
+    call uart_print_str
+
+    ; Step A: Verify PAT is supported on this processor
+    call pat_supported
+    test rax, rax
+    jz .pat_skip_test
+
+    ; Step B: Read and verify default PAT MSR value
+    call pat_get_msr                ; RAX = current PAT MSR value
+    test rax, rax
+    jz .pat_fail_get
+
+    ; Save the default PAT value in R12
+    mov r12, rax
+
+    ; Step C: Assert default indices for key memory types
+    ; Index for Write-Back (WB = 6) should be 0
+    mov rdi, 6
+    call pat_find_entry
+    cmp rax, 0
+    jne .pat_fail_wb_index
+
+    ; Index for Write-Through (WT = 4) should be 1
+    mov rdi, 4
+    call pat_find_entry
+    cmp rax, 1
+    jne .pat_fail_wt_index
+
+    ; Index for Write-Combining (WC = 1) should be 5
+    mov rdi, 1
+    call pat_find_entry
+    cmp rax, 5
+    jne .pat_fail_wc_index
+
+    ; Index for Uncached (UC = 0) should be 3
+    mov rdi, 0
+    call pat_find_entry
+    cmp rax, 3
+    jne .pat_fail_uc_index
+
+    ; Step D: Modify PAT to check writing capability
+    ; We construct a custom PAT layout:
+    ; Swap PAT4 (WP=5) and PAT5 (WC=1):
+    ; Default EDX:EAX = 0x00070105_00070406
+    ; Custom EDX:EAX  = 0x00070501_00070406
+    mov rdi, 0x0007050100070406
+    call pat_set_msr
+    test rax, rax
+    jz .pat_fail_set
+
+    ; Step E: Verify swap succeeded
+    ; Now, Write-Combining (WC = 1) should be found at index 4 (instead of 5)
+    mov rdi, 1
+    call pat_find_entry
+    cmp rax, 4
+    jne .pat_fail_wc_swap
+
+    ; Write-Protect (WP = 5) should be found at index 5 (instead of 4)
+    mov rdi, 5
+    call pat_find_entry
+    cmp rax, 5
+    jne .pat_fail_wp_swap
+
+    ; Step F: Restore original default PAT value
+    mov rdi, r12
+    call pat_set_msr
+    test rax, rax
+    jz .pat_fail_restore
+
+    ; Verify that WC is restored back to index 5
+    mov rdi, 1
+    call pat_find_entry
+    cmp rax, 5
+    jne .pat_fail_restore_verify
+
+    ; PAT Configuration Test PASSED!
+    mov rsi, msg_pat_test_passed
+    call uart_print_str
     jmp .idle
+
+.pat_skip_test:
+    mov rsi, msg_pat_skipped_str
+    call uart_print_str
+    jmp .idle
+
+.pat_fail_get:
+    mov rsi, msg_pat_fail_get_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_wb_index:
+    mov rsi, msg_pat_fail_wb_index_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_wt_index:
+    mov rsi, msg_pat_fail_wt_index_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_wc_index:
+    mov rsi, msg_pat_fail_wc_index_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_uc_index:
+    mov rsi, msg_pat_fail_uc_index_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_set:
+    mov rsi, msg_pat_fail_set_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_wc_swap:
+    mov rsi, msg_pat_fail_wc_swap_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_wp_swap:
+    mov rsi, msg_pat_fail_wp_swap_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_restore:
+    mov rsi, msg_pat_fail_restore_str
+    call uart_print_str
+    jmp .panic
+
+.pat_fail_restore_verify:
+    mov rsi, msg_pat_fail_rest_ver_str
+    call uart_print_str
+    jmp .panic
 
 .mtrr_fail_set:
     mov rsi, msg_mtrr_fail_set_str
