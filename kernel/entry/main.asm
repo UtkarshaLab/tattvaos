@@ -55,6 +55,8 @@ extern kmem_cache_vma
 extern kmem_slab_grow
 extern kmem_slab_link
 extern kmem_slab_unlink
+extern kmem_cache_create
+extern kmem_cache_free
 
 
 
@@ -1697,7 +1699,7 @@ kernel_main:
     ; Slab Lists Tracking Test PASSED!
     mov rsi, msg_slab_grow_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_slab_ctor_test
 
 .slab_grow_fail:
     mov rsi, msg_slab_fail_grow_str
@@ -1756,6 +1758,76 @@ kernel_main:
 
 .slab_fail_lists:
     mov rsi, msg_slab_fail_lists_str
+    call uart_print_str
+    jmp .panic
+
+.run_slab_ctor_test:
+    mov rsi, msg_slab_ctor_test_start
+    call uart_print_str
+
+    ; Create a dynamic cache for verifying constructor execution
+    mov rdi, msg_test_cache_name
+    mov rsi, 64                     ; obj_size = 64
+    mov rdx, 8                      ; align_size = 8
+    mov rcx, test_ctor              ; ctor = test_ctor
+    mov r8, 0                       ; dtor = NULL
+    call kmem_cache_create
+    test rax, rax
+    jz .slab_grow_fail
+    mov r12, rax                    ; R12 = kmem_cache_t pointer
+
+    ; Grow the cache via kmem_slab_grow
+    mov rdi, r12
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+    mov r13, rax                    ; R13 = slab pointer
+
+    ; Assert grown slab's free_head is non-null
+    mov r14, [r13 + slab_t.free_head]
+    test r14, r14
+    jz .slab_fail_ctor
+
+    ; Assert first object retains the constructor-initialized state at offset 8
+    mov rax, 0x123456789ABCDEF0
+    cmp [r14 + 8], rax
+    jne .slab_fail_ctor
+
+    ; Assert second object is also initialized correctly
+    mov r15, [r14]                  ; R15 = pointer to second object
+    test r15, r15
+    jz .slab_fail_ctor_chain
+
+    cmp [r15 + 8], rax
+    jne .slab_fail_ctor
+
+    ; Clean up: unlink slab from slabs_free list and free resources
+    mov rdi, r12
+    mov rsi, kmem_cache_t.slabs_free
+    mov rdx, r13
+    call kmem_slab_unlink
+
+    mov rdi, r13
+    call heap_free
+
+    mov rdi, r12
+    call heap_free
+
+    mov rsi, msg_slab_ctor_test_passed
+    call uart_print_str
+    jmp .idle
+
+test_ctor:
+    mov qword [rdi + 8], 0x123456789ABCDEF0
+    ret
+
+.slab_fail_ctor:
+    mov rsi, msg_slab_fail_ctor_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_ctor_chain:
+    mov rsi, msg_slab_fail_ctor_chain_str
     call uart_print_str
     jmp .panic
 
@@ -2681,6 +2753,13 @@ msg_slab_fail_used_str:        db "Failure: New slab used_count is non-zero.", 0
 msg_slab_fail_free_head_str:   db "Failure: New slab free_head does not point to mem_start.", 0x0D, 0x0A, 0
 msg_slab_fail_free_chain_str:  db "Failure: Slab free objects chain link verification failed.", 0x0D, 0x0A, 0
 msg_slab_fail_transition_str:  db "Failure: Slab transition between lists did not update lists correctly.", 0x0D, 0x0A, 0
+
+; Slab Object Constructor Reuse Test Messages
+msg_slab_ctor_test_start:      db "Running VMM Slab Object Constructor Reuse Test...", 0x0D, 0x0A, 0
+msg_slab_ctor_test_passed:     db "VMM Slab Object Constructor Reuse Test PASSED!", 0x0D, 0x0A, 0
+msg_test_cache_name:           db "kmem_test_ctor", 0
+msg_slab_fail_ctor_str:        db "Failure: Slab object constructor magic value not found.", 0x0D, 0x0A, 0
+msg_slab_fail_ctor_chain_str:  db "Failure: Slab constructor chain contains null next pointer.", 0x0D, 0x0A, 0
 
 
 
