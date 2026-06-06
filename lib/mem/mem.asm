@@ -32,6 +32,7 @@
 %include "lib/mem/slab/slab_free.asm"
 %include "lib/mem/slab/slab_reap.asm"
 %include "lib/mem/buddy/buddy.asm"
+%include "lib/mem/arena/arena.asm"
 
 
 %include "lib/mem/virt/pgtable.asm"
