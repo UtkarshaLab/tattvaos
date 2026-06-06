@@ -33,6 +33,9 @@ extern phys_state
 extern swap_register_device
 extern ata_swap_dev
 extern nvme_swap_dev
+extern kswapd_low_watermark
+extern kswapd_high_watermark
+extern kswapd_check_and_reclaim
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -700,6 +703,116 @@ kernel_main:
     mov rsi, msg_nvme_test_passed
     call uart_print_str
 
+    ; -------------------------------------------------------------
+    ; 8. Run VMM Page-Out Daemon (kswapd) Watermark test
+    ; -------------------------------------------------------------
+    mov rsi, msg_kswapd_test_start
+    call uart_print_str
+
+    ; Step A: Register the default mock RAM swap device
+    lea rdi, [mock_swap_dev]
+    call swap_register_device
+
+    ; Step B: Map user page to put it in the active list, then move to inactive
+    call phys_alloc_page
+    test rax, rax
+    jz .kswapd_fail_alloc_setup
+    mov r14, rax
+
+    mov rdi, r14
+    mov rsi, msg_kswapd_test_data
+    mov rdx, 25
+    call memcpy
+
+    ; Create VMA
+    mov rdi, 0x20000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .kswapd_fail_vma_setup
+    mov r15, rax
+
+    ; Map
+    mov rdi, 0x20000000
+    mov rsi, r14
+    mov rdx, 0x07
+    call virt_map
+    test rax, rax
+    jz .kswapd_fail_map_setup
+
+    ; Move to inactive list
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Clear Accessed bit in PTE
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .kswapd_fail_walk_setup
+    and qword [rax], ~0x20          ; clear Accessed
+
+    ; Step C: Artificially set low watermark to a high value to force trigger
+    mov rax, [phys_state + phys_state_t.free_pages]
+    mov rbx, rax
+    add rbx, 10                     ; rbx = low watermark
+    mov [kswapd_low_watermark], rbx
+    add rbx, 10                     ; rbx = high watermark
+    mov [kswapd_high_watermark], rbx
+
+    ; Step D: Perform a physical page allocation.
+    ; This should automatically trigger kswapd_check_and_reclaim!
+    call phys_alloc_page
+    test rax, rax
+    jz .kswapd_fail_alloc_trigger
+    mov r13, rax                    ; r13 = allocated physical page address
+
+    ; Step E: Verify kswapd successfully evicted our page!
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .kswapd_fail_walk_evicted
+    mov rcx, [rax]
+    test rcx, 1                     ; present?
+    jnz .kswapd_fail_still_present
+    test rcx, 0x400                 ; swapped?
+    jz .kswapd_fail_not_swapped
+
+    ; Step F: Verify data swap-in still works
+    mov rax, [0x20000000]           ; should transparently swap-in!
+    
+    ; Verify data
+    mov rax, [0x20000000]
+    mov rbx, 0x57534B4B5F434F4D     ; 'MOCK_KSW' in little-endian ("MOCK_KSWAPD_SWAP_DATA")
+    cmp rax, rbx
+    jne .kswapd_fail_data_corrupt
+
+    ; Step G: Reset watermarks back to 0 to prevent further triggers
+    mov qword [kswapd_low_watermark], 0
+    mov qword [kswapd_high_watermark], 0
+
+    ; Step H: Cleanup both mapped page and the allocated page
+    mov rdi, 0x20000000
+    call virt_translate
+    mov r14, rax                    ; get new physical frame
+
+    mov rdi, 0x20000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+    mov rdi, r15
+    call vma_destroy
+
+    mov rdi, r13
+    call phys_free_page             ; free page allocated during trigger
+
+    ; kswapd Test PASSED!
+    mov rsi, msg_kswapd_test_passed
+    call uart_print_str
+
     jmp .idle
 
 .rep_fail_init_count:
@@ -1027,6 +1140,51 @@ kernel_main:
     call uart_print_str
     jmp .panic
 
+.kswapd_fail_alloc_setup:
+    mov rsi, msg_kswapd_fail_alloc_setup_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_vma_setup:
+    mov rsi, msg_kswapd_fail_vma_setup_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_map_setup:
+    mov rsi, msg_kswapd_fail_map_setup_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_walk_setup:
+    mov rsi, msg_kswapd_fail_walk_setup_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_alloc_trigger:
+    mov rsi, msg_kswapd_fail_alloc_trigger_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_walk_evicted:
+    mov rsi, msg_kswapd_fail_walk_ev_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_still_present:
+    mov rsi, msg_kswapd_fail_still_pres_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_not_swapped:
+    mov rsi, msg_kswapd_fail_not_swap_str
+    call uart_print_str
+    jmp .panic
+
+.kswapd_fail_data_corrupt:
+    mov rsi, msg_kswapd_fail_data_str
+    call uart_print_str
+    jmp .panic
+
 .panic:
     mov rsi, msg_test_failed
     call uart_print_str
@@ -1160,3 +1318,17 @@ msg_nvme_fail_walk_ev_str:     db "Failure: Walk failed for NVMe evicted address
 msg_nvme_fail_still_pres_str:  db "Failure: Page still present after NVMe eviction.", 0x0D, 0x0A, 0
 msg_nvme_fail_not_swap_str:    db "Failure: Page not marked swapped in NVMe PTE.", 0x0D, 0x0A, 0
 msg_nvme_fail_data_str:        db "Failure: Swapped-in data corrupt on NVMe queue.", 0x0D, 0x0A, 0
+
+msg_kswapd_test_start:         db "Running VMM Page-Out Daemon (kswapd) Watermark Test...", 0x0D, 0x0A, 0
+msg_kswapd_test_passed:        db "VMM Page-Out Daemon (kswapd) Watermark Test PASSED!", 0x0D, 0x0A, 0
+msg_kswapd_test_data:          db "MOCK_KSWAPD_SWAP_DATA", 0
+
+msg_kswapd_fail_alloc_setup_str: db "Failure: Setup physical page allocation failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_vma_setup_str:   db "Failure: Setup VMA creation failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_map_setup_str:   db "Failure: Setup virtual mapping failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_walk_setup_str:  db "Failure: Setup page table walk failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_alloc_trigger_str: db "Failure: Allocation with watermark trigger failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_walk_ev_str:     db "Failure: Evicted walk failed.", 0x0D, 0x0A, 0
+msg_kswapd_fail_still_pres_str:  db "Failure: Page still present after kswapd eviction.", 0x0D, 0x0A, 0
+msg_kswapd_fail_not_swap_str:    db "Failure: Page not marked swapped after kswapd eviction.", 0x0D, 0x0A, 0
+msg_kswapd_fail_data_str:        db "Failure: Swapped-in data corrupt after kswapd reclaim.", 0x0D, 0x0A, 0
