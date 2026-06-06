@@ -155,7 +155,9 @@ mm_init:
     call page_list_init
     call swap_init
     call kswapd_init
+    call heap_transition
     ret
+
 
 .error:
     cli
