@@ -33,6 +33,7 @@
 %include "lib/mem/virt/pgtable_walk.asm"
 %include "lib/mem/virt/virt.asm"
 %include "lib/mem/virt/thp.asm"
+%include "lib/mem/virt/swap.asm"
 %include "lib/mem/virt/pf.asm"
 %include "lib/mem/virt/replacement.asm"
 
