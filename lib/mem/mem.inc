@@ -41,6 +41,8 @@ struc kmem_cache_t
     .lock           resq 1      ; Spinlock for multiprocessor safety
     .ctor           resq 1      ; Object constructor function pointer (optional)
     .dtor           resq 1      ; Object destructor function pointer (optional)
+    .colour_next    resq 1      ; Next color offset index
+    .colour_max     resq 1      ; Maximum color offset count
 endstruc
 
 ; Slab management structure
