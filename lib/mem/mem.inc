@@ -39,6 +39,8 @@ struc kmem_cache_t
     .slabs_part     resq 1      ; Head pointer to partial slabs list
     .slabs_free     resq 1      ; Head pointer to empty slabs list
     .lock           resq 1      ; Spinlock for multiprocessor safety
+    .ctor           resq 1      ; Object constructor function pointer (optional)
+    .dtor           resq 1      ; Object destructor function pointer (optional)
 endstruc
 
 ; Slab management structure
