@@ -21,6 +21,8 @@ PAGE_PCD        equ (1 << 4)        ; Cache disable
 PAGE_ACCESSED   equ (1 << 5)
 PAGE_DIRTY      equ (1 << 6)
 PAGE_HUGE       equ (1 << 7)        ; Huge page (PS bit in PDPT/PD)
+PAGE_PAT        equ (1 << 7)        ; Page Attribute Table bit in leaf PTE
+
 PAGE_GLOBAL     equ (1 << 8)
 PAGE_SWAPPED    equ (1 << 10)       ; Page is swapped out to mock swap device
 PAGE_ZSWAPPED   equ (1 << 11)       ; Page is compressed in Zswap cache
