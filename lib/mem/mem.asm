@@ -26,6 +26,12 @@
 %include "lib/mem/heap/heap.asm"
 %include "lib/mem/heap/defrag.asm"
 
+%include "lib/mem/slab/slab.asm"
+%include "lib/mem/slab/slab_create.asm"
+%include "lib/mem/slab/slab_alloc.asm"
+%include "lib/mem/slab/slab_free.asm"
+%include "lib/mem/slab/slab_reap.asm"
+
 
 %include "lib/mem/virt/pgtable.asm"
 %include "lib/mem/virt/tlb.asm"
