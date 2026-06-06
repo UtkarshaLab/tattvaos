@@ -3052,7 +3052,174 @@ test_ctor:
     ; memzero Test PASSED!
     mov rsi, msg_memzero_test_passed
     call uart_print_str
+    jmp .run_memcmp_test
+
+.run_memcmp_test:
+    mov rsi, msg_memcmp_test_start
+    call uart_print_str
+
+    push r12
+    push r13
+    push r14
+
+    ; Allocate Buffer 1
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memcmp_fail_alloc
+    mov r12, rax                    ; R12 = Buffer 1
+
+    ; Allocate Buffer 2
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memcmp_fail_alloc
+    mov r13, rax                    ; R13 = Buffer 2
+
+    ; Allocate Buffer 3
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memcmp_fail_alloc
+    mov r14, rax                    ; R14 = Buffer 3
+
+    ; Populate all buffers with sequence 0..127
+    xor rcx, rcx
+.populate_loop_memcmp:
+    mov [r12 + rcx], cl
+    mov [r13 + rcx], cl
+    mov [r14 + rcx], cl
+    inc rcx
+    cmp rcx, 128
+    jb .populate_loop_memcmp
+
+    ; Test 1: Compare identical buffers (R12 and R13)
+    mov rcx, 0
+    call .run_match_case
+    mov rcx, 1
+    call .run_match_case
+    mov rcx, 7
+    call .run_match_case
+    mov rcx, 15
+    call .run_match_case
+    mov rcx, 16
+    call .run_match_case
+    mov rcx, 23
+    call .run_match_case
+    mov rcx, 31
+    call .run_match_case
+    mov rcx, 32
+    call .run_match_case
+    mov rcx, 35
+    call .run_match_case
+    mov rcx, 64
+    call .run_match_case
+    mov rcx, 100
+    call .run_match_case
+
+    ; Test 2: Mismatch in first chunk (index 5)
+    mov byte [r14 + 5], 99
+    mov rdi, r12
+    mov rsi, r14
+    mov rdx, 10
+    call memcmp
+    cmp rax, -94                    ; 5 - 99 = -94
+    jne .memcmp_fail_mismatch_val
+
+    mov rdi, r14
+    mov rsi, r12
+    mov rdx, 10
+    call memcmp
+    cmp rax, 94                     ; 99 - 5 = 94
+    jne .memcmp_fail_mismatch_val
+    mov byte [r14 + 5], 5           ; restore
+
+    ; Test 3: Mismatch in second chunk (index 45)
+    mov byte [r14 + 45], 2
+    mov rdi, r12
+    mov rsi, r14
+    mov rdx, 50
+    call memcmp
+    cmp rax, 43                     ; 45 - 2 = 43
+    jne .memcmp_fail_mismatch_val
+    mov byte [r14 + 45], 45         ; restore
+
+    ; Test 4: Mismatch in sub-32 remainder (index 75)
+    mov byte [r14 + 75], 0
+    mov rdi, r12
+    mov rsi, r14
+    mov rdx, 100
+    call memcmp
+    cmp rax, 75                     ; 75 - 0 = 75
+    jne .memcmp_fail_mismatch_val
+    mov byte [r14 + 75], 75         ; restore
+
+    ; Test 5: Mismatch outside compared range (index 50 with size 10)
+    mov byte [r14 + 50], 99
+    mov rdi, r12
+    mov rsi, r14
+    mov rdx, 10
+    call memcmp
+    test rax, rax                   ; must be 0 (identical in first 10 bytes)
+    jnz .memcmp_fail_mismatch_val
+    mov byte [r14 + 50], 50         ; restore
+
+    ; Free all buffers
+    mov rdi, r12
+    call heap_free
+    mov rdi, r13
+    call heap_free
+    mov rdi, r14
+    call heap_free
+
+    pop r14
+    pop r13
+    pop r12
+
+    ; memcmp Test PASSED!
+    mov rsi, msg_memcmp_test_passed
+    call uart_print_str
     jmp .idle
+
+.run_match_case:
+    mov rdi, r12
+    mov rsi, r13
+    mov rdx, rcx
+    call memcmp
+    test rax, rax
+    jnz .memcmp_fail_match_pop
+    ret
+
+.memcmp_fail_match_pop:
+    pop rax                         ; clean up call return address
+    pop r14
+    pop r13
+    pop r12
+    jmp .memcmp_fail_match
+
+.memcmp_fail_mismatch_val:
+    pop r14
+    pop r13
+    pop r12
+    jmp .memcmp_fail_mismatch
+
+.memcmp_fail_alloc:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_memcmp_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.memcmp_fail_match:
+    mov rsi, msg_memcmp_fail_match_str
+    call uart_print_str
+    jmp .panic
+
+.memcmp_fail_mismatch:
+    mov rsi, msg_memcmp_fail_mismatch_str
+    call uart_print_str
+    jmp .panic
 
 .run_one_memzero_case:
     push rcx
@@ -4450,6 +4617,12 @@ msg_memzero_fail_alloc_str:          db "Failure: Could not allocate memory for 
 msg_memzero_fail_ret_str:            db "Failure: memzero did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memzero_fail_data_str:           db "Failure: memzero did not zero the data payload correctly.", 0x0D, 0x0A, 0
 msg_memzero_fail_extra_str:          db "Failure: memzero corrupted memory past the requested zero size.", 0x0D, 0x0A, 0
+
+msg_memcmp_test_start:               db "Running VMM AVX2-Optimized memcmp Test...", 0x0D, 0x0A, 0
+msg_memcmp_test_passed:              db "VMM AVX2-Optimized memcmp Test PASSED!", 0x0D, 0x0A, 0
+msg_memcmp_fail_alloc_str:           db "Failure: Could not allocate memory for memcmp test buffers.", 0x0D, 0x0A, 0
+msg_memcmp_fail_match_str:           db "Failure: memcmp returned non-zero for identical memory blocks.", 0x0D, 0x0A, 0
+msg_memcmp_fail_mismatch_str:        db "Failure: memcmp did not calculate mismatch sign or magnitude correctly.", 0x0D, 0x0A, 0
 
 
 
