@@ -31,6 +31,7 @@ PAGE_PRESENT    equ (1 << 0)
 PAGE_WRITABLE   equ (1 << 1)
 PAGE_USER       equ (1 << 2)
 PAGE_COW        equ (1 << 9)
+PAGE_SWAPPED    equ (1 << 10)
 PAGE_NX         equ (1 << 63)
 
 ; External symbols
@@ -47,6 +48,10 @@ extern virt_walk_table
 extern virt_split_super_1gb
 extern virt_split_huge_2mb
 extern tlb_shootdown
+extern swap_read_page
+extern swap_free_slot
+extern page_list_add_active
+extern phys_state
 
 ; -----------------------------------------------------------------------------
 ; page_fault_isr — Low-level assembly entry point for Vector 14 (#PF)
@@ -149,6 +154,32 @@ virt_page_fault_handler:
     mov r13, rsi                    ; R13 = error_code
     mov r14, rdx                    ; R14 = original RSP
 
+    ; Check if it is a swap fault (Non-Present fault with PAGE_SWAPPED set in PTE)
+    test r13, 1                     ; present fault (bit 0 set)?
+    jnz .not_swap_fault             ; yes, cannot be swap fault
+
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address, RDX = level
+    test rax, rax
+    jz .not_swap_fault
+
+    mov rbx, [rax]                  ; RBX = PTE value
+    test rbx, PAGE_SWAPPED
+    jz .not_swap_fault
+
+    ; It is a swap fault! Handle it
+    mov rdi, r12                    ; vaddr
+    mov rsi, rax                    ; PTE address
+    mov rdx, rbx                    ; PTE value
+    call virt_handle_swap_fault
+    test rax, rax
+    jz .do_diagnostics              ; if failed, panic/diagnostic
+
+    mov rax, 1                      ; successfully handled
+    jmp .exit
+
+.not_swap_fault:
     ; 1. Find VMA containing the address
     mov rdi, r12
     call vma_find                   ; RAX = VMA pointer, or 0 if not found
@@ -755,5 +786,94 @@ msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
 align 8
 global zero_page_addr
 zero_page_addr:         dq 0
+
+; -----------------------------------------------------------------------------
+; virt_handle_swap_fault — handles swap-in of a page from mock swap space
+; Input:
+;   RDI = faulting virtual address
+;   RSI = PTE address
+;   RDX = PTE value
+; Output:
+;   RAX = 1 on success, 0 on failure (OOM)
+; -----------------------------------------------------------------------------
+global virt_handle_swap_fault
+virt_handle_swap_fault:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; R12 = vaddr
+    mov r13, rsi                    ; R13 = PTE address
+    mov r14, rdx                    ; R14 = PTE value
+
+    ; 1. Extract swap slot index from PTE (bits 12-51)
+    mov r15, r14
+    shr r15, 12
+    mov rax, 0xFFFFFFFFFFFFF        ; 40 bits of physical frame address
+    and r15, rax                    ; R15 = swap slot index
+
+    ; 2. Allocate a new physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .oom
+    mov rbx, rax                    ; RBX = new physical address
+
+    ; 3. Read content from swap slot to new page
+    mov rdi, rbx                    ; dest physical address
+    mov rsi, r15                    ; swap slot index
+    call swap_read_page
+
+    ; 4. Free the swap slot
+    mov rdi, r15
+    call swap_free_slot
+
+    ; 5. Update the page table entry
+    ; Keep original lower 12 flags and NX flag from old PTE (r14)
+    ; Clear PAGE_SWAPPED, set PAGE_PRESENT, set PAGE_ACCESSED
+    mov rcx, r14
+    and rcx, 0xFFF                  ; preserve lower 12 flags
+    mov r10, (1 << 63)
+    and r10, r14
+    or rcx, r10                     ; preserve NX
+    
+    and rcx, ~PAGE_SWAPPED          ; clear Swapped
+    or rcx, PAGE_PRESENT            ; set Present
+    or rcx, PAGE_ACCESSED           ; set Accessed
+    or rcx, rbx                     ; set new physical page frame address
+
+    mov [r13], rcx                  ; write PTE
+
+    ; 6. Flush TLB
+    invlpg [r12]
+
+    ; 7. Add page back to active list if PAGE_USER is set and PAGE_GLOBAL is clear
+    test rcx, PAGE_USER
+    jz .skip_tracking
+    test rcx, PAGE_GLOBAL
+    jnz .skip_tracking
+
+    mov rdi, rbx                    ; physical address
+    mov rsi, r12                    ; virtual address
+    call page_list_add_active
+
+.skip_tracking:
+    ; 8. Decrement swap count statistics
+    dec qword [phys_state + phys_state_t.swap_pages]
+
+    mov rax, 1                      ; return 1 (success)
+    jmp .done
+
+.oom:
+    xor rax, rax                    ; return 0 (failure)
+
+.done:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
 
 %endif ; LIB_MEM_VIRT_PF_ASM
