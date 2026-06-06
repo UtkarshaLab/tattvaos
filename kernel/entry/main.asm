@@ -2699,6 +2699,11 @@ test_ctor:
     cmp rax, 4
     jne .pool_fail_count_pop
 
+    ; Verify generation tag value is 4 (4 allocations)
+    mov rax, [r12 + pool_t.free_tag]
+    cmp rax, 4
+    jne .pool_fail_tag_pop
+
     ; Step G: Free slot 1 (R14) and slot 3 (RBP)
     mov rdi, r12
     mov rsi, r14
@@ -2712,6 +2717,11 @@ test_ctor:
     mov rax, [r12 + pool_t.count]
     cmp rax, 2
     jne .pool_fail_count_pop
+
+    ; Verify generation tag value is 6 (4 allocs + 2 frees)
+    mov rax, [r12 + pool_t.free_tag]
+    cmp rax, 6
+    jne .pool_fail_tag_pop
 
     ; Verify free list structure:
     ; 1. free_head must now point to slot 3 (RBP)
@@ -2744,6 +2754,11 @@ test_ctor:
     mov rax, [r12 + pool_t.count]
     cmp rax, 4
     jne .pool_fail_count_pop
+
+    ; Verify generation tag value is 8 (4 allocs + 2 frees + 2 re-allocs)
+    mov rax, [r12 + pool_t.free_tag]
+    cmp rax, 8
+    jne .pool_fail_tag_pop
 
     ; Step I: Test bounds and alignment safety checks in pool_free
     ; 1. Free out-of-bounds address (R12, the descriptor)
@@ -2816,6 +2831,13 @@ test_ctor:
     pop rbp
 .pool_fail_safety:
     mov rsi, msg_pool_fail_safety_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_tag_pop:
+    pop rbp
+.pool_fail_tag:
+    mov rsi, msg_pool_fail_tag_str
     call uart_print_str
     jmp .panic
 
@@ -3829,6 +3851,7 @@ msg_pool_fail_count_str:             db "Failure: Pool active count value is inc
 msg_pool_fail_free_list_str:         db "Failure: Intrusive stack-based free list links are incorrect.", 0x0D, 0x0A, 0
 msg_pool_fail_reuse_str:             db "Failure: pool_alloc did not pop the head slot from the free list.", 0x0D, 0x0A, 0
 msg_pool_fail_safety_str:            db "Failure: Invalid pool_free call was not ignored or corrupted the count.", 0x0D, 0x0A, 0
+msg_pool_fail_tag_str:               db "Failure: Pool generation tag was not updated correctly after CAS operations.", 0x0D, 0x0A, 0
 
 
 
