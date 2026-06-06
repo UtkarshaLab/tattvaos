@@ -37,24 +37,65 @@ pool_free:
     push rcx
     push rax
 
+    push r8
+    push r9
+    push r10
+    push r11
+
     ; Validate pointer is within pool memory range
-    mov rax, [rdi + pool_t.memory]  ; RAX = start of memory
+    ; Walk the singly-linked list of blocks to find which one contains RSI
+    mov r8, [rdi + pool_t.memory]
+    sub r8, 16                      ; R8 = first block address (B)
+    mov r9, [rdi + pool_t.obj_size] ; R9 = obj_size
+
+.check_block_loop:
+    test r8, r8
+    jz .invalid_slot                ; end of block list, slot not found in any block, ignore free
+
+    ; Fetch block capacity (B.capacity is at [r8 + 8])
+    mov r10, [r8 + 8]               ; R10 = capacity of this block
+    
+    ; Calculate slot area range for this block
+    mov r11, r8
+    add r11, 16                     ; R11 = slot area start = B + 16
+    
+    mov rax, r10
+    imul rax, r9                    ; RAX = B.capacity * obj_size
+    add rax, r11                    ; RAX = slot area end = start + capacity * obj_size
+    
+    ; Check if RSI is within [R11, RAX)
+    cmp rsi, r11
+    jb .next_block
     cmp rsi, rax
-    jb .exit_pop                    ; if rsi < start, ignore
-
-    mov rbx, [rdi + pool_t.capacity]
-    imul rbx, [rdi + pool_t.obj_size] ; RBX = total memory size
-    add rbx, rax                    ; RBX = end of memory
-    cmp rsi, rbx
-    jae .exit_pop                   ; if rsi >= end, ignore
-
-    ; Validate slot alignment: (rsi - start) % obj_size == 0
+    jae .next_block
+    
+    ; RSI is in this block! Now validate alignment: (RSI - R11) % obj_size == 0
     mov rax, rsi
-    sub rax, [rdi + pool_t.memory]  ; RAX = offset
-    xor rdx, rdx                    ; clear high bits for division
-    div qword [rdi + pool_t.obj_size] ; RAX = slot index, RDX = remainder
+    sub rax, r11                    ; RAX = offset
+    xor rdx, rdx
+    div r9                          ; RAX = slot index, RDX = remainder
     test rdx, rdx
-    jnz .exit_pop                   ; if offset is not a multiple of obj_size, ignore
+    jnz .invalid_slot               ; misaligned offset, ignore free
+    
+    ; Valid slot! Proceed to push to free list
+    jmp .valid_slot
+
+.next_block:
+    mov r8, [r8]                    ; R8 = next block (B.next)
+    jmp .check_block_loop
+
+.invalid_slot:
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    jmp .exit_pop
+
+.valid_slot:
+    pop r11
+    pop r10
+    pop r9
+    pop r8
 
     ; Load current free_head and free_tag to expected registers RDX:RAX
     mov rax, [rdi + pool_t.free_head]
