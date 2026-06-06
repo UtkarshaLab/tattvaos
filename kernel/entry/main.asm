@@ -43,6 +43,9 @@ extern mtrr_get_vcnt
 extern mtrr_set_variable
 extern mtrr_get_variable
 extern mtrr_disable_variable
+extern fb_init
+extern fb_benchmark
+
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -1216,7 +1219,40 @@ kernel_main:
     ; PAT Configuration Test PASSED!
     mov rsi, msg_pat_test_passed
     call uart_print_str
+    jmp .run_fb_test
+
+.run_fb_test:
+    mov rsi, msg_fb_test_start_str
+    call uart_print_str
+
+    call fb_init
+    cmp rax, 2                      ; skipped gracefully (no framebuffer)
+    je .fb_skip_test
+    test rax, rax
+    jz .fb_fail_init
+
+    call fb_benchmark
+    test rax, rax
+    jz .fb_fail_bench
+
+    mov rsi, msg_fb_test_passed_str
+    call uart_print_str
     jmp .idle
+
+.fb_skip_test:
+    mov rsi, msg_fb_skipped_str
+    call uart_print_str
+    jmp .idle
+
+.fb_fail_init:
+    mov rsi, msg_fb_fail_init_str
+    call uart_print_str
+    jmp .panic
+
+.fb_fail_bench:
+    mov rsi, msg_fb_fail_bench_str
+    call uart_print_str
+    jmp .panic
 
 .pat_skip_test:
     mov rsi, msg_pat_skipped_str
@@ -1993,3 +2029,26 @@ msg_mtrr_fail_size_str:       db "Failure: mtrr_get_variable returned incorrect 
 msg_mtrr_fail_type_str:       db "Failure: mtrr_get_variable returned incorrect type.", 0x0D, 0x0A, 0
 msg_mtrr_fail_disable_str:    db "Failure: mtrr_disable_variable returned 0.", 0x0D, 0x0A, 0
 msg_mtrr_fail_still_act_str:  db "Failure: mtrr_get_variable indicates slot is active after disable.", 0x0D, 0x0A, 0
+
+; PAT Configuration Test messages
+msg_pat_test_start:         db "Running VMM PAT Cache Configuration Test...", 0x0D, 0x0A, 0
+msg_pat_test_passed:        db "VMM PAT Cache Configuration Test PASSED!", 0x0D, 0x0A, 0
+msg_pat_skipped_str:        db "PAT Cache Configuration Test skipped: PAT not supported.", 0x0D, 0x0A, 0
+msg_pat_fail_get_str:       db "Failure: pat_get_msr returned 0.", 0x0D, 0x0A, 0
+msg_pat_fail_wb_index_str:  db "Failure: WB index search returned incorrect slot.", 0x0D, 0x0A, 0
+msg_pat_fail_wt_index_str:  db "Failure: WT index search returned incorrect slot.", 0x0D, 0x0A, 0
+msg_pat_fail_wc_index_str:  db "Failure: WC index search returned incorrect slot.", 0x0D, 0x0A, 0
+msg_pat_fail_uc_index_str:  db "Failure: UC index search returned incorrect slot.", 0x0D, 0x0A, 0
+msg_pat_fail_set_str:       db "Failure: pat_set_msr returned 0.", 0x0D, 0x0A, 0
+msg_pat_fail_wc_swap_str:   db "Failure: WC index search returned incorrect slot after swap.", 0x0D, 0x0A, 0
+msg_pat_fail_wp_swap_str:   db "Failure: WP index search returned incorrect slot after swap.", 0x0D, 0x0A, 0
+msg_pat_fail_restore_str:   db "Failure: pat_set_msr returned 0 during restore.", 0x0D, 0x0A, 0
+msg_pat_fail_rest_ver_str:  db "Failure: WC index search returned incorrect slot after restore.", 0x0D, 0x0A, 0
+
+; Write-Combining Framebuffer messages
+msg_fb_test_start_str:      db "Running VMM Write-Combining Video Buffer mapping test...", 0x0D, 0x0A, 0
+msg_fb_test_passed_str:     db "VMM Write-Combining Video Buffer mapping test PASSED!", 0x0D, 0x0A, 0
+msg_fb_skipped_str:         db "Write-Combining Video Buffer test skipped: No linear framebuffer.", 0x0D, 0x0A, 0
+msg_fb_fail_init_str:       db "Failure: Framebuffer mapping initialization failed.", 0x0D, 0x0A, 0
+msg_fb_fail_bench_str:      db "Failure: Framebuffer write speed benchmark failed.", 0x0D, 0x0A, 0
+
