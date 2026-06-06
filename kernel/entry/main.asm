@@ -52,6 +52,9 @@ extern heap_compact
 extern kmem_cache_file
 extern kmem_cache_task
 extern kmem_cache_vma
+extern kmem_slab_grow
+extern kmem_slab_link
+extern kmem_slab_unlink
 
 
 
@@ -1599,7 +1602,142 @@ kernel_main:
     ; Slab Allocator Cache Definitions Test PASSED!
     mov rsi, msg_slab_test_passed
     call uart_print_str
+
+    ; =========================================================================
+    ; 10.2 Slab Lists Tracking & Grow Test
+    ; =========================================================================
+    mov rsi, msg_slab_grow_test_start
+    call uart_print_str
+
+    ; Grow kmem_cache_vma (size 64, align 8)
+    mov rdi, kmem_cache_vma
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+
+    ; R12 = pointer to grown slab
+    mov r12, rax
+
+    ; Check if the slab was linked into kmem_cache_vma.slabs_free
+    mov r13, [kmem_cache_vma + kmem_cache_t.slabs_free]
+    cmp r13, r12
+    jne .slab_fail_free_list
+
+    ; Verify slab magic, obj_count, and used_count
+    mov rax, [r12 + slab_t.magic]
+    cmp rax, 0x51AB51AB
+    jne .slab_fail_magic
+
+    mov rax, [r12 + slab_t.obj_count]
+    cmp rax, 63
+    jne .slab_fail_count
+
+    mov rax, [r12 + slab_t.used_count]
+    test rax, rax
+    jnz .slab_fail_used
+
+    ; Verify free_head is mem_start (slab + 56)
+    mov rax, [r12 + slab_t.free_head]
+    mov rbx, r12
+    add rbx, 56
+    cmp rax, rbx
+    jne .slab_fail_free_head
+
+    ; Verify first object points to next object (slab + 56 + 64)
+    mov rcx, [rax]
+    mov rdx, rbx
+    add rdx, 64
+    cmp rcx, rdx
+    jne .slab_fail_free_chain
+
+    ; Manually transition from slabs_free to slabs_part
+    mov rdi, kmem_cache_vma
+    mov rsi, kmem_cache_t.slabs_free
+    mov rdx, r12
+    call kmem_slab_unlink
+
+    ; Check slabs_free is now empty (0)
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_free]
+    test rax, rax
+    jnz .slab_fail_transition
+
+    ; Link to slabs_part
+    mov rdi, kmem_cache_vma
+    mov rsi, kmem_cache_t.slabs_part
+    mov rdx, r12
+    call kmem_slab_link
+
+    ; Check slabs_part has the slab
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_part]
+    cmp rax, r12
+    jne .slab_fail_transition
+
+    ; Verify slab's links are updated (next/prev are 0 since list is single-item)
+    mov rax, [r12 + slab_t.next]
+    test rax, rax
+    jnz .slab_fail_transition
+    mov rax, [r12 + slab_t.prev]
+    test rax, rax
+    jnz .slab_fail_transition
+
+    ; Clean up: unlink from slabs_part and free back to general heap
+    mov rdi, kmem_cache_vma
+    mov rsi, kmem_cache_t.slabs_part
+    mov rdx, r12
+    call kmem_slab_unlink
+
+    mov rdi, r12
+    call heap_free
+
+    ; Reset lists
+    mov qword [kmem_cache_vma + kmem_cache_t.slabs_free], 0
+    mov qword [kmem_cache_vma + kmem_cache_t.slabs_part], 0
+    mov qword [kmem_cache_vma + kmem_cache_t.slabs_full], 0
+
+    ; Slab Lists Tracking Test PASSED!
+    mov rsi, msg_slab_grow_test_passed
+    call uart_print_str
     jmp .idle
+
+.slab_grow_fail:
+    mov rsi, msg_slab_fail_grow_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_free_list:
+    mov rsi, msg_slab_fail_free_list_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_magic:
+    mov rsi, msg_slab_fail_magic_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_count:
+    mov rsi, msg_slab_fail_count_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_used:
+    mov rsi, msg_slab_fail_used_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_free_head:
+    mov rsi, msg_slab_fail_free_head_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_free_chain:
+    mov rsi, msg_slab_fail_free_chain_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_transition:
+    mov rsi, msg_slab_fail_transition_str
+    call uart_print_str
+    jmp .panic
 
 .slab_fail_name:
     mov rsi, msg_slab_fail_name_str
@@ -2531,6 +2669,18 @@ msg_slab_fail_name_str:      db "Failure: Slab cache name is missing or incorrec
 msg_slab_fail_size_str:      db "Failure: Slab cache object size verification failed.", 0x0D, 0x0A, 0
 msg_slab_fail_align_str:     db "Failure: Slab cache alignment verification failed.", 0x0D, 0x0A, 0
 msg_slab_fail_lists_str:     db "Failure: Slab cache slab lists are not empty.", 0x0D, 0x0A, 0
+
+; Slab Lists Tracking & Grow Test Messages
+msg_slab_grow_test_start:      db "Running VMM Slab Lists Tracking & Grow Test...", 0x0D, 0x0A, 0
+msg_slab_grow_test_passed:     db "VMM Slab Lists Tracking & Grow Test PASSED!", 0x0D, 0x0A, 0
+msg_slab_fail_grow_str:        db "Failure: kmem_slab_grow returned NULL.", 0x0D, 0x0A, 0
+msg_slab_fail_free_list_str:   db "Failure: New slab was not added to the slabs_free list.", 0x0D, 0x0A, 0
+msg_slab_fail_magic_str:       db "Failure: Slab magic number is incorrect or corrupt.", 0x0D, 0x0A, 0
+msg_slab_fail_count_str:       db "Failure: Slab object capacity (obj_count) is incorrect.", 0x0D, 0x0A, 0
+msg_slab_fail_used_str:        db "Failure: New slab used_count is non-zero.", 0x0D, 0x0A, 0
+msg_slab_fail_free_head_str:   db "Failure: New slab free_head does not point to mem_start.", 0x0D, 0x0A, 0
+msg_slab_fail_free_chain_str:  db "Failure: Slab free objects chain link verification failed.", 0x0D, 0x0A, 0
+msg_slab_fail_transition_str:  db "Failure: Slab transition between lists did not update lists correctly.", 0x0D, 0x0A, 0
 
 
 
