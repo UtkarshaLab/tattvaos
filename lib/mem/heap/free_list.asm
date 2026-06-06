@@ -236,19 +236,25 @@ free_list_free:
     mov [free_list_head], rdi
 
 .coalesce:
-    ; 1. Try to merge RDI with RDI->next
+    ; -------------------------------------------------------------------------
+    ; Coalescing Step 1: Merge freed block (RDI) with succeeding block (RDI->next)
+    ; -------------------------------------------------------------------------
     mov rsi, [rdi + heap_block_t.next]
     test rsi, rsi
     jz .coalesce_prev
     
-    ; Check if RDI and RSI are physically contiguous: rdi + heap_block_t_size + rdi->size == rsi
+    ; Check if RDI and RSI are physically contiguous in memory:
+    ;   rdi + heap_block_t_size + rdi->size == rsi
     mov rax, rdi
     add rax, heap_block_t_size
     add rax, [rdi + heap_block_t.size]
     cmp rax, rsi
     jne .coalesce_prev
     
-    ; Merge RSI into RDI
+    ; Merge RSI into RDI:
+    ;   - Add RSI's payload size and header size to RDI's size field
+    ;   - Update RDI's next pointer to skip RSI
+    ;   - Update RSI->next's prev pointer to point back to RDI
     mov rcx, [rsi + heap_block_t.size]
     add rcx, heap_block_t_size
     add [rdi + heap_block_t.size], rcx
@@ -260,19 +266,25 @@ free_list_free:
     mov [rcx + heap_block_t.prev], rdi
 
 .coalesce_prev:
-    ; 2. Try to merge RDI->prev with RDI
+    ; -------------------------------------------------------------------------
+    ; Coalescing Step 2: Merge preceding block (RDI->prev) with freed block (RDI)
+    ; -------------------------------------------------------------------------
     mov rsi, [rdi + heap_block_t.prev]
     test rsi, rsi
     jz .done
     
-    ; Check if RSI and RDI are physically contiguous: rsi + heap_block_t_size + rsi->size == rdi
+    ; Check if RSI and RDI are physically contiguous in memory:
+    ;   rsi + heap_block_t_size + rsi->size == rdi
     mov rax, rsi
     add rax, heap_block_t_size
     add rax, [rsi + heap_block_t.size]
     cmp rax, rdi
     jne .done
     
-    ; Merge RDI into RSI
+    ; Merge RDI into RSI:
+    ;   - Add RDI's payload size and header size to RSI's size field
+    ;   - Update RSI's next pointer to skip RDI
+    ;   - Update RDI->next's prev pointer to point back to RSI
     mov rcx, [rdi + heap_block_t.size]
     add rcx, heap_block_t_size
     add [rsi + heap_block_t.size], rcx
