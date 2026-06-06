@@ -75,6 +75,9 @@ extern arena_init_local
 extern arena_alloc_local
 extern arena_reset_local
 extern arena_destroy_local
+extern pool_create
+extern pool_alloc
+extern pool_free
 
 
 
@@ -2540,7 +2543,7 @@ test_ctor:
     ; Arena & Region Allocator Test PASSED!
     mov rsi, msg_arena_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_pool_test
 
 .arena_fail_checkpoint_pop:
     pop rbp
@@ -2608,6 +2611,226 @@ test_ctor:
 
 .arena_fail_local_destroy:
     mov rsi, msg_arena_fail_local_destroy_str
+    call uart_print_str
+    jmp .panic
+
+.run_pool_test:
+    mov rsi, msg_pool_test_start
+    call uart_print_str
+
+    ; Step A: Create a pool of object size 32 and capacity 4
+    mov rdi, 32
+    mov rsi, 4
+    call pool_create
+    test rax, rax
+    jz .pool_fail_create
+    mov r12, rax                    ; R12 = pool descriptor pointer
+
+    ; Verify pool configuration
+    ; 1. obj_size must be 32
+    mov rax, [r12 + pool_t.obj_size]
+    cmp rax, 32
+    jne .pool_fail_config
+
+    ; 2. capacity must be 4
+    mov rax, [r12 + pool_t.capacity]
+    cmp rax, 4
+    jne .pool_fail_config
+
+    ; 3. count must be 0
+    mov rax, [r12 + pool_t.count]
+    test rax, rax
+    jnz .pool_fail_config
+
+    ; 4. free_head must equal memory pointer
+    mov rax, [r12 + pool_t.free_head]
+    mov rbx, [r12 + pool_t.memory]
+    cmp rax, rbx
+    jne .pool_fail_config
+
+    ; Step B: Allocate slot 0
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_alloc
+    mov r13, rax                    ; R13 = slot 0 (expected at pool.memory)
+
+    ; Verify slot 0 points to start of memory
+    mov rbx, [r12 + pool_t.memory]
+    cmp r13, rbx
+    jne .pool_fail_ptr
+
+    ; Step C: Allocate slot 1
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_alloc
+    mov r14, rax                    ; R14 = slot 1 (expected at slot 0 + 32)
+
+    ; Verify slot 1 is contiguous
+    mov rax, r13
+    add rax, 32
+    cmp r14, rax
+    jne .pool_fail_ptr
+
+    ; Step D: Allocate slot 2
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_alloc
+    mov r15, rax                    ; R15 = slot 2
+
+    ; Step E: Allocate slot 3 (use pushed rbp)
+    push rbp
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_alloc_pop
+    mov rbp, rax                    ; RBP = slot 3
+
+    ; Step F: Verify OOM (5th allocation must return NULL)
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jnz .pool_fail_oom_pop
+
+    ; Verify used count is 4
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4
+    jne .pool_fail_count_pop
+
+    ; Step G: Free slot 1 (R14) and slot 3 (RBP)
+    mov rdi, r12
+    mov rsi, r14
+    call pool_free
+
+    mov rdi, r12
+    mov rsi, rbp
+    call pool_free
+
+    ; Verify used count is 2
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 2
+    jne .pool_fail_count_pop
+
+    ; Verify free list structure:
+    ; 1. free_head must now point to slot 3 (RBP)
+    mov rax, [r12 + pool_t.free_head]
+    cmp rax, rbp
+    jne .pool_fail_free_list_pop
+
+    ; 2. slot 3 (RBP) must point to slot 1 (R14) in its first 8 bytes
+    mov rax, [rbp]
+    cmp rax, r14
+    jne .pool_fail_free_list_pop
+
+    ; 3. slot 1 (R14) must point to NULL (0)
+    mov rax, [r14]
+    test rax, rax
+    jnz .pool_fail_free_list_pop
+
+    ; Step H: Allocate again and verify O(1) list head reuse
+    mov rdi, r12
+    call pool_alloc
+    cmp rax, rbp                    ; must return slot 3 (RBP) first
+    jne .pool_fail_reuse_pop
+
+    mov rdi, r12
+    call pool_alloc
+    cmp rax, r14                    ; must return slot 1 (R14) next
+    jne .pool_fail_reuse_pop
+
+    ; Verify used count is back to 4
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4
+    jne .pool_fail_count_pop
+
+    ; Step I: Test bounds and alignment safety checks in pool_free
+    ; 1. Free out-of-bounds address (R12, the descriptor)
+    mov rdi, r12
+    mov rsi, r12
+    call pool_free
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4                      ; count must remain 4 (invalid free ignored)
+    jne .pool_fail_safety_pop
+
+    ; 2. Free misaligned address
+    mov rax, [r12 + pool_t.memory]
+    add rax, 15                     ; not aligned to 32 bytes
+    mov rdi, r12
+    mov rsi, rax
+    call pool_free
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4                      ; count must remain 4 (invalid free ignored)
+    jne .pool_fail_safety_pop
+
+    pop rbp                         ; restore RBP
+
+    ; Step J: Clean up memory blocks
+    mov rdi, [r12 + pool_t.memory]
+    call heap_free
+    mov rdi, r12
+    call heap_free
+
+    ; Pool Allocator Test PASSED!
+    mov rsi, msg_pool_test_passed
+    call uart_print_str
+    jmp .idle
+
+.pool_fail_alloc_pop:
+    pop rbp
+.pool_fail_alloc:
+    mov rsi, msg_pool_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_oom_pop:
+    pop rbp
+.pool_fail_oom:
+    mov rsi, msg_pool_fail_oom_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_count_pop:
+    pop rbp
+.pool_fail_count:
+    mov rsi, msg_pool_fail_count_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_free_list_pop:
+    pop rbp
+.pool_fail_free_list:
+    mov rsi, msg_pool_fail_free_list_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_reuse_pop:
+    pop rbp
+.pool_fail_reuse:
+    mov rsi, msg_pool_fail_reuse_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_safety_pop:
+    pop rbp
+.pool_fail_safety:
+    mov rsi, msg_pool_fail_safety_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_create:
+    mov rsi, msg_pool_fail_create_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_config:
+    mov rsi, msg_pool_fail_config_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_ptr:
+    mov rsi, msg_pool_fail_ptr_str
     call uart_print_str
     jmp .panic
 
@@ -3593,6 +3816,19 @@ msg_arena_fail_local_init_str:       db "Failure: Thread-local arena init failed
 msg_arena_fail_local_alloc_str:      db "Failure: Thread-local arena allocation returned NULL.", 0x0D, 0x0A, 0
 msg_arena_fail_local_reset_str:      db "Failure: Thread-local arena reset failed.", 0x0D, 0x0A, 0
 msg_arena_fail_local_destroy_str:    db "Failure: Thread-local arena destroy did not clear gs:[24] to NULL.", 0x0D, 0x0A, 0
+
+; Fixed-Size Pool Allocator Test Messages
+msg_pool_test_start:                 db "Running VMM Fixed-Size Pool Allocator Test...", 0x0D, 0x0A, 0
+msg_pool_test_passed:                db "VMM Fixed-Size Pool Allocator Test PASSED!", 0x0D, 0x0A, 0
+msg_pool_fail_create_str:            db "Failure: pool_create returned NULL.", 0x0D, 0x0A, 0
+msg_pool_fail_config_str:            db "Failure: Pool config fields (obj_size, capacity, count, memory, free_head) are incorrect.", 0x0D, 0x0A, 0
+msg_pool_fail_alloc_str:             db "Failure: pool_alloc returned NULL.", 0x0D, 0x0A, 0
+msg_pool_fail_ptr_str:               db "Failure: Allocated pool slot is not at the expected memory address.", 0x0D, 0x0A, 0
+msg_pool_fail_oom_str:               db "Failure: pool_alloc succeeded when the pool was fully exhausted.", 0x0D, 0x0A, 0
+msg_pool_fail_count_str:             db "Failure: Pool active count value is incorrect.", 0x0D, 0x0A, 0
+msg_pool_fail_free_list_str:         db "Failure: Intrusive stack-based free list links are incorrect.", 0x0D, 0x0A, 0
+msg_pool_fail_reuse_str:             db "Failure: pool_alloc did not pop the head slot from the free list.", 0x0D, 0x0A, 0
+msg_pool_fail_safety_str:            db "Failure: Invalid pool_free call was not ignored or corrupted the count.", 0x0D, 0x0A, 0
 
 
 
