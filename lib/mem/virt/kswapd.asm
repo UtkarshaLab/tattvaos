@@ -13,7 +13,8 @@
 [BITS 64]
 
 ; Offsets for phys_state_t (locally defined for assembly visibility)
-phys_state_t_free_pages_offset equ 24
+phys_state_t_free_pages_offset     equ 24
+phys_state_t_reserved_pages_offset equ 40
 
 section .text
 
@@ -21,6 +22,10 @@ section .text
 extern phys_state
 extern page_replace_clock_evict
 extern uart_print_str
+extern kmem_cache_reap
+extern kmem_cache_file
+extern kmem_cache_task
+extern kmem_cache_vma
 
 ; Watermarks
 global kswapd_low_watermark
@@ -72,6 +77,33 @@ kswapd_check_and_reclaim:
     call uart_print_str
 
     xor r13, r13                    ; R13 = count of pages reclaimed
+
+    ; --- Slab Reaping Pass ---
+    xor r14, r14                    ; R14 = count of slabs/pages reaped
+
+    mov rdi, kmem_cache_file
+    call kmem_cache_reap
+    add r14, rax
+
+    mov rdi, kmem_cache_task
+    call kmem_cache_reap
+    add r14, rax
+
+    mov rdi, kmem_cache_vma
+    call kmem_cache_reap
+    add r14, rax
+
+    test r14, r14
+    jz .skip_slab_reclaim_update
+
+    ; Update physical telemetry stats
+    mov rax, phys_state
+    add [rax + phys_state_t_free_pages_offset], r14
+    sub [rax + phys_state_t_reserved_pages_offset], r14
+
+    add r13, r14                    ; add to total pages reclaimed count
+
+.skip_slab_reclaim_update:
 
 .sweep_loop:
     ; Check if we hit the high watermark
