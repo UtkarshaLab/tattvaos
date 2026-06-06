@@ -63,4 +63,11 @@ struc buddy_block_t
     .order      resq 1          ; Order of this block
 endstruc
 
+; Arena allocator header
+struc arena_t
+    .start      resq 1          ; Start of allocation payload (16-byte aligned)
+    .end        resq 1          ; End of allocation space (exclusive)
+    .current    resq 1          ; Current allocation bump pointer
+endstruc
+
 %endif ; LIB_MEM_MEM_INC

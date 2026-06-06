@@ -53,6 +53,7 @@ bsp_cpu_local:
     .cpu_id      dd 0               ; CPU ID 0 for BSP
     .reserved    dd 0               ; explicit alignment padding
     .stack_top   dq kernel_stack_top; kernel stack top address
+    .arena       dq 0               ; thread-local/core-local arena pointer (offset 24)
 
 ; -----------------------------------------------------------------------------
 ; Kernel Stack allocation
