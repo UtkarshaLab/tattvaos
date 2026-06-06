@@ -43,6 +43,7 @@ arena_alloc:
     ; Align requested size to a 16-byte boundary
     mov rax, rsi
     add rax, 15
+    jc .fail                        ; check overflow
     and rax, -16                    ; RAX = aligned size
 
     ; Retrieve current pointer and end pointer
@@ -52,6 +53,7 @@ arena_alloc:
     ; Calculate new current pointer
     mov rdx, rbx
     add rdx, rax                    ; RDX = new_current = current + aligned_size
+    jc .fail                        ; check overflow
 
     ; Check if new_current exceeds end pointer (unsigned comparison)
     cmp rdx, rcx

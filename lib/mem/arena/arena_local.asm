@@ -31,9 +31,7 @@ extern arena_destroy
 ; -----------------------------------------------------------------------------
 global arena_init_local
 arena_init_local:
-    push rdi
-    
-    ; Call arena_create to allocate and initialize
+    ; Call arena_create to allocate and initialize (RDI = size)
     call arena_create               ; RAX = arena_t pointer
     test rax, rax
     jz .fail
@@ -42,7 +40,6 @@ arena_init_local:
     mov [gs:24], rax
 
 .fail:
-    pop rdi
     ret
 
 ; -----------------------------------------------------------------------------
@@ -55,26 +52,15 @@ arena_init_local:
 ; -----------------------------------------------------------------------------
 global arena_alloc_local
 arena_alloc_local:
-    push rdi
-    push rsi
-
-    ; Retrieve the local arena pointer from GS offset 24
-    mov rdi, [gs:24]
+    mov rsi, rdi                    ; RSI = size
+    mov rdi, [gs:24]                ; RDI = arena pointer
     test rdi, rdi
-    jz .fail                        ; if no arena is bound to this core, fail
+    jz .fail
 
-    ; Set parameters for arena_alloc: RDI = arena, RSI = size
-    mov rsi, [rsp + 8]              ; RSI = original RDI (size) from stack
-    call arena_alloc                ; RAX = allocated address
-
-    jmp .exit
+    jmp arena_alloc                 ; tail call optimization
 
 .fail:
     xor rax, rax
-
-.exit:
-    pop rsi
-    pop rdi
     ret
 
 ; -----------------------------------------------------------------------------
@@ -85,16 +71,13 @@ arena_alloc_local:
 ; -----------------------------------------------------------------------------
 global arena_reset_local
 arena_reset_local:
-    push rdi
-
     mov rdi, [gs:24]
     test rdi, rdi
     jz .exit
 
-    call arena_reset
+    jmp arena_reset                 ; tail call optimization
 
 .exit:
-    pop rdi
     ret
 
 ; -----------------------------------------------------------------------------
@@ -105,8 +88,6 @@ arena_reset_local:
 ; -----------------------------------------------------------------------------
 global arena_destroy_local
 arena_destroy_local:
-    push rdi
-
     mov rdi, [gs:24]
     test rdi, rdi
     jz .exit
@@ -115,7 +96,6 @@ arena_destroy_local:
     mov qword [gs:24], 0            ; clear local arena pointer
 
 .exit:
-    pop rdi
     ret
 
 %endif ; LIB_MEM_ARENA_ARENA_LOCAL_ASM
