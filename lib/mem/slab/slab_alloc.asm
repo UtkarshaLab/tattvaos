@@ -1,7 +1,7 @@
 ; =============================================================================
 ; Tattva OS — lib/mem/slab/slab_alloc.asm
 ; =============================================================================
-; Slab Allocator Allocation & Tracking routines (Subfeature 10.2).
+; Slab Allocator Allocation & Tracking routines (Subfeature 10.3).
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -182,6 +182,48 @@ kmem_slab_grow:
     ; Set slab's free_head
     mov [r13 + slab_t.free_head], r14
 
+    ; --- 5b. Run Constructor if defined ---
+    mov r8, [r12 + kmem_cache_t.ctor]
+    test r8, r8
+    jz .skip_ctor                   ; if constructor is null, skip loop
+
+    ; Loop over all objects in the slab and call ctor(obj_ptr, cache_ptr)
+    mov r14, [r13 + slab_t.mem_start] ; R14 = current object pointer
+    xor rdx, rdx                    ; RDX = loop index (0 to obj_count - 1)
+    mov rsi, [r12 + kmem_cache_t.obj_size] ; RSI = obj_size
+
+.ctor_loop:
+    cmp rdx, r15                    ; compare index with obj_count (R15)
+    jae .skip_ctor
+
+    ; Save loop registers before calling ctor
+    push r12
+    push r13
+    push r14
+    push r15
+    push rdx
+    push rsi
+    push r8
+
+    ; Call constructor: ctor(RDI = obj_ptr, RSI = cache_ptr)
+    mov rdi, r14                    ; object pointer
+    mov rsi, r12                    ; cache pointer
+    call r8
+
+    pop r8
+    pop rsi
+    pop rdx
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+
+    ; Advance to next object
+    add r14, rsi                    ; R14 = next object address
+    inc rdx
+    jmp .ctor_loop
+
+.skip_ctor:
     ; 6. Link the slab to the cache's slabs_free list
     mov rdi, r12                    ; RDI = cache descriptor
     mov rsi, kmem_cache_t.slabs_free ; RSI = offset of slabs_free
