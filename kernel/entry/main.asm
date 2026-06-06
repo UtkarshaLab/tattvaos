@@ -59,6 +59,7 @@ extern kmem_cache_create
 extern kmem_cache_free
 extern kmem_cache_reap
 extern buddy_init
+extern buddy_alloc
 extern buddy_free_heads
 extern buddy_start_addr
 extern buddy_end_addr
@@ -2115,7 +2116,7 @@ test_ctor:
     ; Buddy Allocator Initialization Test PASSED!
     mov rsi, msg_buddy_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_buddy_split_test
 
 .buddy_fail_alloc:
     mov rsi, msg_buddy_fail_alloc_str
@@ -2134,6 +2135,144 @@ test_ctor:
 
 .buddy_fail_metadata:
     mov rsi, msg_buddy_fail_metadata_str
+    call uart_print_str
+    jmp .panic
+
+.run_buddy_split_test:
+    mov rsi, msg_buddy_split_test_start
+    call uart_print_str
+
+    ; Step A: Allocate memory for the test buddy allocator
+    ; We allocate 10MB + 8MB = 18MB to allow 8MB alignment
+    mov rdi, 18874368
+    call heap_alloc
+    test rax, rax
+    jz .buddy_fail_alloc
+    mov r12, rax                    ; R12 = raw heap block pointer
+
+    ; Align the start address to 8MB boundary (A)
+    mov r13, r12
+    add r13, 8388607
+    mov r14, 8388607
+    not r14
+    and r13, r14                    ; R13 = aligned start address (A)
+
+    ; Initialize the buddy allocator: A (R13), size = 10MB (10,485,760 bytes)
+    mov rdi, r13
+    mov rsi, 10485760
+    call buddy_init
+
+    ; Step B: Allocate a block of Order 8 (1MB).
+    mov rdi, 8                      ; requested order = 8
+    call buddy_alloc
+    test rax, rax
+    jz .buddy_fail_split_alloc
+    mov r15, rax                    ; R15 = allocated block pointer (expected A + 8MB)
+
+    ; Verify that the allocated pointer is exactly A + 8MB (R13 + 8MB)
+    mov rdx, r13
+    add rdx, 8388608                ; RDX = A + 8MB
+    cmp r15, rdx
+    jne .buddy_fail_split_ptr
+
+    ; Verify list heads after split:
+    ; buddy_free_heads[11] must still be A (R13)
+    ; buddy_free_heads[9]  must now be NULL (0)
+    ; buddy_free_heads[8]  must now be A + 9MB (R13 + 9,437,184)
+    ; All other free list heads must be NULL.
+    xor rcx, rcx                    ; RCX = order
+.verify_split_list_loop:
+    cmp rcx, 12
+    jae .verify_split_list_done
+
+    lea rax, [buddy_free_heads]
+    mov rbx, [rax + rcx * 8]        ; RBX = buddy_free_heads[RCX]
+
+    cmp rcx, 11
+    je .check_split_order_11
+    cmp rcx, 8
+    je .check_split_order_8
+
+    ; For other orders, head must be NULL
+    test rbx, rbx
+    jnz .buddy_fail_split_lists
+    jmp .next_split_verify
+
+.check_split_order_11:
+    cmp rbx, r13
+    jne .buddy_fail_split_lists
+    jmp .next_split_verify
+
+.check_split_order_8:
+    mov rdx, r13
+    add rdx, 9437184                ; A + 9MB (8MB + 1MB)
+    cmp rbx, rdx
+    jne .buddy_fail_split_lists
+
+.next_split_verify:
+    inc rcx
+    jmp .verify_split_list_loop
+
+.verify_split_list_done:
+    ; Verify metadata array:
+    ; index 2048 (A + 8MB) must be 8 (allocated, Order 8)
+    ; index 2304 (A + 9MB) must be 0x88 (free, Order 8)
+    ; index 0 (A) must be 0x8B (free, Order 11)
+    mov rdx, [buddy_metadata]
+    test rdx, rdx
+    jz .buddy_fail_split_metadata
+
+    mov al, [rdx + 2048]
+    cmp al, 8
+    jne .buddy_fail_split_metadata
+
+    mov al, [rdx + 2304]
+    cmp al, 0x88
+    jne .buddy_fail_split_metadata
+
+    mov al, [rdx + 0]
+    cmp al, 0x8B
+    jne .buddy_fail_split_metadata
+
+    ; Clean up
+    mov rdi, [buddy_metadata]
+    call heap_free
+    mov qword [buddy_metadata], 0
+
+    mov rdi, r12
+    call heap_free
+
+    mov qword [buddy_start_addr], 0
+    mov qword [buddy_end_addr], 0
+
+    lea rdi, [buddy_free_heads]
+    mov rcx, 12
+    xor rax, rax
+    cld
+    rep stosq
+
+    ; Buddy Allocator Splitting Test PASSED!
+    mov rsi, msg_buddy_split_test_passed
+    call uart_print_str
+    jmp .idle
+
+.buddy_fail_split_alloc:
+    mov rsi, msg_buddy_fail_split_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_split_ptr:
+    mov rsi, msg_buddy_fail_split_ptr_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_split_lists:
+    mov rsi, msg_buddy_fail_split_lists_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_split_metadata:
+    mov rsi, msg_buddy_fail_split_metadata_str
     call uart_print_str
     jmp .panic
 
@@ -3088,6 +3227,14 @@ msg_buddy_fail_alloc_str:      db "Failure: Could not allocate memory for buddy 
 msg_buddy_fail_config_str:     db "Failure: Buddy allocator config variables (start/end) are incorrect.", 0x0D, 0x0A, 0
 msg_buddy_fail_lists_str:      db "Failure: Buddy free list heads are incorrect or not partitioned properly.", 0x0D, 0x0A, 0
 msg_buddy_fail_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect.", 0x0D, 0x0A, 0
+
+; Buddy Allocator Splitting Test Messages
+msg_buddy_split_test_start:          db "Running Buddy Allocator Block Splitting Test...", 0x0D, 0x0A, 0
+msg_buddy_split_test_passed:         db "Buddy Allocator Block Splitting Test PASSED!", 0x0D, 0x0A, 0
+msg_buddy_fail_split_alloc_str:      db "Failure: buddy_alloc returned NULL for requested order.", 0x0D, 0x0A, 0
+msg_buddy_fail_split_ptr_str:        db "Failure: Allocated pointer is not at expected block address.", 0x0D, 0x0A, 0
+msg_buddy_fail_split_lists_str:      db "Failure: Buddy free lists are incorrect after block splitting.", 0x0D, 0x0A, 0
+msg_buddy_fail_split_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect after splitting.", 0x0D, 0x0A, 0
 
 
 
