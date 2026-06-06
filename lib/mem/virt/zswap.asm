@@ -140,7 +140,7 @@ zswap_compress_and_store:
     mov byte [rcx + rbx], 1         ; mark slot in use
     
     lea rcx, [zswap_sizes]
-    mov [rcx + rbx * 2], wword r13w ; save compressed size (word)
+    mov [rcx + rbx * 2], r13w       ; save compressed size (word)
 
     inc qword [zswap_compressed_pages] ; increment telemetry
 
