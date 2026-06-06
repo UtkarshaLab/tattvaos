@@ -21,7 +21,10 @@
 %include "lib/mem/phys/map.asm"
 %include "lib/mem/phys/bitmap.asm"
 %include "lib/mem/phys/phys.asm"
+%include "lib/mem/heap/bump.asm"
 %include "lib/mem/heap/free_list.asm"
+%include "lib/mem/heap/heap.asm"
+
 %include "lib/mem/virt/pgtable.asm"
 %include "lib/mem/virt/tlb.asm"
 %include "lib/mem/virt/tlb_shootdown.asm"
