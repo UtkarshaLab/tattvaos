@@ -93,10 +93,20 @@ free_list_alloc:
     jmp .search_loop
 
 .found_block:
-    ; Check if we can split: block->size >= aligned_size + heap_block_t_size + 16
+    ; -------------------------------------------------------------------------
+    ; Splitting Threshold Check
+    ; We only split the block if the remaining space is large enough to form a
+    ; valid new block. A valid block requires:
+    ;   1. Structure header overhead: heap_block_t_size (32 bytes)
+    ;   2. Minimum payload size: 16 bytes (16-byte aligned payload boundary)
+    ; Therefore, the total block size must satisfy:
+    ;   block->size >= requested_aligned_size (R8) + heap_block_t_size (32) + 16
+    ; If not met, we allocate the entire block as-is to prevent producing
+    ; unusable zero-payload free fragments (internal fragmentation).
+    ; -------------------------------------------------------------------------
     mov r9, r8
     add r9, heap_block_t_size
-    add r9, 16                      ; R9 = minimum size required to split
+    add r9, 16                      ; R9 = minimum size threshold to split
     cmp rcx, r9
     jb .allocate_whole
     
