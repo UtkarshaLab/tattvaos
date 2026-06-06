@@ -21,6 +21,7 @@ PAGE_WRITABLE   equ (1 << 1)
 PAGE_USER       equ (1 << 2)
 PAGE_ACCESSED   equ (1 << 5)
 PAGE_SWAPPED    equ (1 << 10)       ; Bit 10 represents a swapped out page
+PAGE_ZSWAPPED   equ (1 << 11)       ; Bit 11 represents a compressed zswap page
 
 ; Node structure for tracked page frames (matches replacement.asm)
 struc page_node_t
@@ -63,6 +64,10 @@ extern current_swap_device
 extern mock_swap_dev
 extern swap_register_device
 
+extern zswap_init
+extern zswap_compress_and_store
+extern zswap_free_slot
+
 ; -----------------------------------------------------------------------------
 ; swap_init — registers the default Mock RAM device and clears memory slots
 ; -----------------------------------------------------------------------------
@@ -82,6 +87,8 @@ swap_init:
     xor rax, rax
     cld
     rep stosq
+
+    call zswap_init
 
     pop rax
     pop rcx
@@ -450,7 +457,18 @@ page_replace_clock_evict:
     ; Release lock for memory allocation and copying
     call replacement_lock_release
 
-    ; 1. Allocate a swap slot
+    ; 1. Try Zswap compression first
+    mov rdi, r15                    ; source physical address
+    call zswap_compress_and_store   ; RAX = slot index / -1
+    cmp rax, -1
+    je .fallback_disk_swap          ; compression failed, fallback to disk swap
+
+    mov r10, rax                    ; R10 = Zswap slot index
+    mov r8, 1                       ; R8 = 1 indicates Zswap page
+    jmp .lock_and_commit
+
+.fallback_disk_swap:
+    ; 1. Allocate a disk swap slot
     call swap_alloc_slot            ; RAX = slot index, or -1
     cmp rax, -1
     je .fail_swap_full
@@ -461,14 +479,18 @@ page_replace_clock_evict:
     mov rdi, r15                    ; source physical address
     mov rsi, r10                    ; slot index
     call swap_write_page
+    mov r8, 0                       ; R8 = 0 indicates regular disk swap
 
+.lock_and_commit:
     ; Re-acquire lock to commit the changes to PTE and list
     call replacement_lock_acquire
 
     ; Verify PTE is still present and matches
     mov rdi, [rbx + page_node_t.virt_addr]
     xor rsi, rsi
+    push r8                         ; preserve Zswap indicator flag
     call virt_walk_table
+    pop r8                          ; restore Zswap indicator flag
     cmp rax, r13
     jne .abort_evict                ; PTE changed, abort!
 
@@ -484,6 +506,11 @@ page_replace_clock_evict:
     and rcx, ~PAGE_ACCESSED         ; clear Accessed
     or rcx, PAGE_SWAPPED            ; set Swapped
     
+    test r8, r8
+    jz .pte_flags_done
+    or rcx, PAGE_ZSWAPPED           ; set Zswapped flag
+.pte_flags_done:
+
     ; Shift swap slot index (R10) to bits 12-51
     mov r9, r10
     shl r9, 12
@@ -609,7 +636,13 @@ page_replace_clock_evict:
     ; Free the swap slot we allocated since we aborted eviction
     call replacement_lock_release
     mov rdi, r10
+    test r8, r8
+    jz .abort_disk_swap
+    call zswap_free_slot
+    jmp .abort_done
+.abort_disk_swap:
     call swap_free_slot
+.abort_done:
     call replacement_lock_acquire
     jmp .scan_next
 
