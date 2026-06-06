@@ -136,8 +136,23 @@ kmem_slab_grow:
     add rax, rcx                    ; RAX = r13 + 56 + align - 1
     not rcx
     and rax, rcx                    ; RAX = aligned mem_start
+
+    ; --- Apply Cache Color Offset ---
+    mov rdx, [r12 + kmem_cache_t.colour_next]
+    shl rdx, 6                      ; RDX = colour_next * 64
+    add rax, rdx                    ; RAX = mem_start + colour_offset
+
+    ; Update colour_next in cache descriptor
+    mov rcx, [r12 + kmem_cache_t.colour_next]
+    inc rcx
+    cmp rcx, [r12 + kmem_cache_t.colour_max]
+    jbe .store_color
+    xor rcx, rcx                    ; wrap around to 0
+.store_color:
+    mov [r12 + kmem_cache_t.colour_next], rcx
+
     mov [r13 + slab_t.mem_start], rax
-    mov r14, rax                    ; R14 = mem_start
+    mov r14, rax                    ; R14 = mem_start (with color shift)
 
     ; 4. Calculate obj_count capacity
     ; obj_count = (r13 + 4096 - mem_start) / obj_size
