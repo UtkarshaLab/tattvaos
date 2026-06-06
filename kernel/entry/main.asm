@@ -65,6 +65,16 @@ extern buddy_free_heads
 extern buddy_start_addr
 extern buddy_end_addr
 extern buddy_metadata
+extern arena_create
+extern arena_alloc
+extern arena_reset
+extern arena_destroy
+extern arena_checkpoint_save
+extern arena_checkpoint_restore
+extern arena_init_local
+extern arena_alloc_local
+extern arena_reset_local
+extern arena_destroy_local
 
 
 
@@ -2347,7 +2357,7 @@ test_ctor:
     ; Buddy Allocator Coalescing Test PASSED!
     mov rsi, msg_buddy_coalesce_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_arena_test
 
 .buddy_fail_coal_lists:
     mov rsi, msg_buddy_fail_coal_lists_str
@@ -2356,6 +2366,248 @@ test_ctor:
 
 .buddy_fail_coal_metadata:
     mov rsi, msg_buddy_fail_coal_metadata_str
+    call uart_print_str
+    jmp .panic
+
+.run_arena_test:
+    mov rsi, msg_arena_test_start
+    call uart_print_str
+
+    ; Step A: Create an Arena of 1MB (1048576 bytes)
+    mov rdi, 1048576
+    call arena_create
+    test rax, rax
+    jz .arena_fail_create
+    mov r12, rax                    ; R12 = arena pointer
+
+    ; Verify arena configuration
+    ; 1. start address must be 16-byte aligned
+    mov rax, [r12 + arena_t.start]
+    test rax, 15
+    jnz .arena_fail_align
+
+    ; 2. current pointer must equal start address
+    mov rbx, [r12 + arena_t.current]
+    cmp rax, rbx
+    jne .arena_fail_config
+
+    ; 3. end address must equal arena pointer + 1MB
+    mov rcx, [r12 + arena_t.end]
+    mov rdx, r12
+    add rdx, 1048576
+    cmp rcx, rdx
+    jne .arena_fail_config
+
+    ; Step B: Allocate block A (64 bytes)
+    mov rdi, r12
+    mov rsi, 64
+    call arena_alloc
+    test rax, rax
+    jz .arena_fail_alloc
+    mov r13, rax                    ; R13 = allocation A (expected at start address)
+
+    ; Verify A's alignment
+    test r13, 15
+    jnz .arena_fail_align
+
+    ; Verify A points to start address
+    mov rax, [r12 + arena_t.start]
+    cmp r13, rax
+    jne .arena_fail_ptr
+
+    ; Step C: Allocate block B (16 bytes)
+    mov rdi, r12
+    mov rsi, 16
+    call arena_alloc
+    test rax, rax
+    jz .arena_fail_alloc
+    mov r14, rax                    ; R14 = allocation B
+
+    ; Verify B's alignment
+    test r14, 15
+    jnz .arena_fail_align
+
+    ; Verify B is contiguous to A (A + 64)
+    mov rax, r13
+    add rax, 64
+    cmp r14, rax
+    jne .arena_fail_spacing
+
+    ; Step D: Allocate block C (5 bytes)
+    mov rdi, r12
+    mov rsi, 5
+    call arena_alloc
+    test rax, rax
+    jz .arena_fail_alloc
+    mov r15, rax                    ; R15 = allocation C
+
+    ; Verify C's alignment (must be 16-byte aligned)
+    test r15, 15
+    jnz .arena_fail_align
+
+    ; Verify C spacing: should be at B + 16 (since 5 is padded to 16)
+    mov rax, r14
+    add rax, 16
+    cmp r15, rax
+    jne .arena_fail_spacing
+
+    ; Step E: Test Checkpoint Save/Restore
+    push rbp
+    mov rdi, r12
+    call arena_checkpoint_save
+    test rax, rax
+    jz .arena_fail_checkpoint_pop
+    mov rbp, rax                    ; RBP = checkpoint pointer
+
+    ; Verify checkpoint value matches current pointer
+    mov rbx, [r12 + arena_t.current]
+    cmp rbp, rbx
+    jne .arena_fail_checkpoint_pop
+
+    ; Allocate block D (100 bytes)
+    mov rdi, r12
+    mov rsi, 100
+    call arena_alloc
+    test rax, rax
+    jz .arena_fail_alloc_pop
+
+    ; Restore checkpoint
+    mov rdi, r12
+    mov rsi, rbp
+    call arena_checkpoint_restore
+
+    ; Verify current pointer is restored to checkpoint value (RBP)
+    mov rax, [r12 + arena_t.current]
+    cmp rax, rbp
+    jne .arena_fail_checkpoint_pop
+    pop rbp
+
+    ; Step F: Test Out Of Memory (OOM) handling
+    mov rdi, r12
+    mov rsi, 1048576                ; request space larger than total arena
+    call arena_alloc
+    test rax, rax
+    jnz .arena_fail_oom             ; should return 0 (NULL)
+
+    ; Step G: Test Arena Reset
+    mov rdi, r12
+    call arena_reset
+    mov rax, [r12 + arena_t.current]
+    mov rbx, [r12 + arena_t.start]
+    cmp rax, rbx
+    jne .arena_fail_reset
+
+    ; Step H: Test Thread-Local/Core-Local Arenas (Lock-Free)
+    ; 1. Initialize local arena (2MB)
+    mov rdi, 2097152
+    call arena_init_local
+    test rax, rax
+    jz .arena_fail_local_init
+
+    ; Verify it is bound to the core (stored in [gs:24])
+    mov rbx, [gs:24]
+    cmp rax, rbx
+    jne .arena_fail_local_init
+
+    ; 2. Allocate 128 bytes from local arena
+    mov rdi, 128
+    call arena_alloc_local
+    test rax, rax
+    jz .arena_fail_local_alloc
+
+    ; Verify aligned pointer
+    test rax, 15
+    jnz .arena_fail_align
+
+    ; 3. Reset local arena
+    call arena_reset_local
+    mov rdx, [gs:24]
+    mov rax, [rdx + arena_t.current]
+    mov rbx, [rdx + arena_t.start]
+    cmp rax, rbx
+    jne .arena_fail_local_reset
+
+    ; 4. Destroy local arena
+    call arena_destroy_local
+    mov rax, [gs:24]
+    test rax, rax
+    jnz .arena_fail_local_destroy
+
+    ; Step I: Destroy the 1MB arena
+    mov rdi, r12
+    call arena_destroy
+
+    ; Arena & Region Allocator Test PASSED!
+    mov rsi, msg_arena_test_passed
+    call uart_print_str
+    jmp .idle
+
+.arena_fail_checkpoint_pop:
+    pop rbp
+.arena_fail_checkpoint:
+    mov rsi, msg_arena_fail_checkpoint_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_alloc_pop:
+    pop rbp
+.arena_fail_alloc:
+    mov rsi, msg_arena_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_create:
+    mov rsi, msg_arena_fail_create_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_config:
+    mov rsi, msg_arena_fail_config_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_align:
+    mov rsi, msg_arena_fail_align_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_ptr:
+    mov rsi, msg_arena_fail_ptr_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_spacing:
+    mov rsi, msg_arena_fail_spacing_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_oom:
+    mov rsi, msg_arena_fail_oom_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_reset:
+    mov rsi, msg_arena_fail_reset_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_local_init:
+    mov rsi, msg_arena_fail_local_init_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_local_alloc:
+    mov rsi, msg_arena_fail_local_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_local_reset:
+    mov rsi, msg_arena_fail_local_reset_str
+    call uart_print_str
+    jmp .panic
+
+.arena_fail_local_destroy:
+    mov rsi, msg_arena_fail_local_destroy_str
     call uart_print_str
     jmp .panic
 
@@ -3324,6 +3576,23 @@ msg_buddy_coalesce_test_start:       db "Running Buddy Allocator Block Coalescin
 msg_buddy_coalesce_test_passed:      db "Buddy Allocator Block Coalescing Test PASSED!", 0x0D, 0x0A, 0
 msg_buddy_fail_coal_lists_str:      db "Failure: Buddy free lists are incorrect after block coalescing.", 0x0D, 0x0A, 0
 msg_buddy_fail_coal_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect after coalescing.", 0x0D, 0x0A, 0
+
+; Arena Allocator Test Messages
+msg_arena_test_start:                db "Running VMM Arena Allocator Test...", 0x0D, 0x0A, 0
+msg_arena_test_passed:               db "VMM Arena Allocator Test PASSED!", 0x0D, 0x0A, 0
+msg_arena_fail_create_str:           db "Failure: arena_create returned NULL.", 0x0D, 0x0A, 0
+msg_arena_fail_config_str:           db "Failure: Arena starting, current, or ending bounds config is incorrect.", 0x0D, 0x0A, 0
+msg_arena_fail_alloc_str:            db "Failure: arena_alloc returned NULL.", 0x0D, 0x0A, 0
+msg_arena_fail_align_str:            db "Failure: Arena allocation address is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_arena_fail_ptr_str:              db "Failure: First arena allocation did not return aligned start address.", 0x0D, 0x0A, 0
+msg_arena_fail_spacing_str:          db "Failure: Arena allocations are not contiguous/spaced correctly.", 0x0D, 0x0A, 0
+msg_arena_fail_checkpoint_str:       db "Failure: Arena checkpoint save/restore check failed.", 0x0D, 0x0A, 0
+msg_arena_fail_oom_str:              db "Failure: Arena allocation succeeded when it should have returned NULL (OOM).", 0x0D, 0x0A, 0
+msg_arena_fail_reset_str:            db "Failure: Arena current pointer was not reset back to start address.", 0x0D, 0x0A, 0
+msg_arena_fail_local_init_str:       db "Failure: Thread-local arena init failed or pointer was not stored in gs:[24].", 0x0D, 0x0A, 0
+msg_arena_fail_local_alloc_str:      db "Failure: Thread-local arena allocation returned NULL.", 0x0D, 0x0A, 0
+msg_arena_fail_local_reset_str:      db "Failure: Thread-local arena reset failed.", 0x0D, 0x0A, 0
+msg_arena_fail_local_destroy_str:    db "Failure: Thread-local arena destroy did not clear gs:[24] to NULL.", 0x0D, 0x0A, 0
 
 
 
