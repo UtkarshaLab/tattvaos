@@ -31,6 +31,8 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/heap/bump.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/free_list.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/heap.asm \
+                          $(KERNEL_DIR)/../lib/mem/heap/defrag.asm \
+
 
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/virt.asm \
