@@ -33,9 +33,17 @@ kmem_cache_create_in_place:
     test rdi, rdi
     jz .done
 
+    ; Align object size to alignment boundary
+    mov rax, rdx
+    dec rcx
+    add rax, rcx
+    not rcx
+    and rax, rcx                    ; RAX = aligned obj_size
+    inc rcx                         ; restore RCX (alignment)
+
     ; Set cache configuration
     mov [rdi + kmem_cache_t.name], rsi
-    mov [rdi + kmem_cache_t.obj_size], rdx
+    mov [rdi + kmem_cache_t.obj_size], rax
     mov [rdi + kmem_cache_t.align_size], rcx
 
     ; Initialize slab list heads to 0 (NULL)
