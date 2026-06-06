@@ -34,6 +34,7 @@
 %include "lib/mem/virt/virt.asm"
 %include "lib/mem/virt/thp.asm"
 %include "lib/mem/virt/swap_device.asm"
+%include "lib/mem/virt/zswap.asm"
 %include "lib/mem/virt/swap.asm"
 %include "lib/mem/virt/kswapd.asm"
 %include "lib/mem/virt/pf.asm"
