@@ -24,6 +24,8 @@ section .text
 ;   RAX = pointer to the allocated slot, or 0 if exhausted or invalid pool
 ; Clobbers: none (preserves non-volatile registers)
 ; -----------------------------------------------------------------------------
+extern pool_grow
+
 global pool_alloc
 pool_alloc:
     ; Validate pool pointer
@@ -38,7 +40,7 @@ pool_alloc:
 
 .retry:
     test rax, rax
-    jz .fail_pop                    ; if free_head is NULL, pool is exhausted
+    jz .grow_pool                   ; if free_head is NULL, try to grow
 
     ; Read next pointer from first 8 bytes of expected free slot
     mov rbx, [rax]                  ; RBX = new_head (next slot)
@@ -56,6 +58,18 @@ pool_alloc:
 
     pop rbx
     ret
+
+.grow_pool:
+    push rdi
+    call pool_grow
+    pop rdi
+    test rax, rax
+    jz .fail_pop                    ; if grow failed (OOM), fail allocation
+
+    ; Grow succeeded! Reload free_head and free_tag and retry allocation
+    mov rax, [rdi + pool_t.free_head]
+    mov rdx, [rdi + pool_t.free_tag]
+    jmp .retry
 
 .fail_pop:
     pop rbx
