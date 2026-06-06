@@ -49,6 +49,9 @@ extern heap_active_allocator
 extern heap_register_relocatable
 extern heap_unregister_relocatable
 extern heap_compact
+extern kmem_cache_file
+extern kmem_cache_task
+extern kmem_cache_vma
 
 
 
@@ -1462,7 +1465,7 @@ kernel_main:
     ; Heap Defragmenter Test PASSED!
     mov rsi, msg_defrag_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_slab_test
 
 .defrag_fail_alloc_A:
     mov rsi, msg_defrag_fail_alloc_A_str
@@ -1496,6 +1499,125 @@ kernel_main:
 
 .defrag_fail_assert_C:
     mov rsi, msg_defrag_fail_assert_C_str
+    call uart_print_str
+    jmp .panic
+
+.run_slab_test:
+    mov rsi, msg_slab_test_start
+    call uart_print_str
+
+    ; --- 1. Verify kmem_cache_file ---
+    ; Check name is initialized to non-null and starts with 'kmem'
+    mov rax, [kmem_cache_file + kmem_cache_t.name]
+    test rax, rax
+    jz .slab_fail_name
+    mov ebx, [rax]
+    cmp ebx, 0x6D656D6B             ; 'kmem' in little endian (0x6B, 0x6D, 0x65, 0x6D)
+    jne .slab_fail_name
+
+    ; Check object size is 256
+    mov rax, [kmem_cache_file + kmem_cache_t.obj_size]
+    cmp rax, 256
+    jne .slab_fail_size
+
+    ; Check alignment is 8
+    mov rax, [kmem_cache_file + kmem_cache_t.align_size]
+    cmp rax, 8
+    jne .slab_fail_align
+
+    ; Check list heads are 0
+    mov rax, [kmem_cache_file + kmem_cache_t.slabs_full]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_file + kmem_cache_t.slabs_part]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_file + kmem_cache_t.slabs_free]
+    test rax, rax
+    jnz .slab_fail_lists
+
+    ; --- 2. Verify kmem_cache_task ---
+    ; Check name starts with 'kmem'
+    mov rax, [kmem_cache_task + kmem_cache_t.name]
+    test rax, rax
+    jz .slab_fail_name
+    mov ebx, [rax]
+    cmp ebx, 0x6D656D6B
+    jne .slab_fail_name
+
+    ; Check object size is 512
+    mov rax, [kmem_cache_task + kmem_cache_t.obj_size]
+    cmp rax, 512
+    jne .slab_fail_size
+
+    ; Check alignment is 16
+    mov rax, [kmem_cache_task + kmem_cache_t.align_size]
+    cmp rax, 16
+    jne .slab_fail_align
+
+    ; Check list heads are 0
+    mov rax, [kmem_cache_task + kmem_cache_t.slabs_full]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_task + kmem_cache_t.slabs_part]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_task + kmem_cache_t.slabs_free]
+    test rax, rax
+    jnz .slab_fail_lists
+
+    ; --- 3. Verify kmem_cache_vma ---
+    ; Check name starts with 'kmem'
+    mov rax, [kmem_cache_vma + kmem_cache_t.name]
+    test rax, rax
+    jz .slab_fail_name
+    mov ebx, [rax]
+    cmp ebx, 0x6D656D6B
+    jne .slab_fail_name
+
+    ; Check object size is 64
+    mov rax, [kmem_cache_vma + kmem_cache_t.obj_size]
+    cmp rax, 64
+    jne .slab_fail_size
+
+    ; Check alignment is 8
+    mov rax, [kmem_cache_vma + kmem_cache_t.align_size]
+    cmp rax, 8
+    jne .slab_fail_align
+
+    ; Check list heads are 0
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_full]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_part]
+    test rax, rax
+    jnz .slab_fail_lists
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_free]
+    test rax, rax
+    jnz .slab_fail_lists
+
+    ; Slab Allocator Cache Definitions Test PASSED!
+    mov rsi, msg_slab_test_passed
+    call uart_print_str
+    jmp .idle
+
+.slab_fail_name:
+    mov rsi, msg_slab_fail_name_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_size:
+    mov rsi, msg_slab_fail_size_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_align:
+    mov rsi, msg_slab_fail_align_str
+    call uart_print_str
+    jmp .panic
+
+.slab_fail_lists:
+    mov rsi, msg_slab_fail_lists_str
     call uart_print_str
     jmp .panic
 
@@ -2401,6 +2523,14 @@ msg_defrag_fail_reg_str:       db "Failure: Pointer registration returned 0.", 0
 msg_defrag_fail_compact_str:   db "Failure: heap_compact returned 0.", 0x0D, 0x0A, 0
 msg_defrag_fail_assert_A_str:  db "Failure: A was moved or corrupted during compaction.", 0x0D, 0x0A, 0
 msg_defrag_fail_assert_C_str:  db "Failure: C pointer was not updated to B's old address.", 0x0D, 0x0A, 0
+
+; Slab Allocator Test Messages
+msg_slab_test_start:         db "Running VMM Slab Allocator Cache Definitions Test...", 0x0D, 0x0A, 0
+msg_slab_test_passed:        db "VMM Slab Allocator Cache Definitions Test PASSED!", 0x0D, 0x0A, 0
+msg_slab_fail_name_str:      db "Failure: Slab cache name is missing or incorrect.", 0x0D, 0x0A, 0
+msg_slab_fail_size_str:      db "Failure: Slab cache object size verification failed.", 0x0D, 0x0A, 0
+msg_slab_fail_align_str:     db "Failure: Slab cache alignment verification failed.", 0x0D, 0x0A, 0
+msg_slab_fail_lists_str:     db "Failure: Slab cache slab lists are not empty.", 0x0D, 0x0A, 0
 
 
 
