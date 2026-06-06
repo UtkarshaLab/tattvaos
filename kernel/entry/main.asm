@@ -1879,7 +1879,7 @@ test_ctor:
     ; Slab Reaping Test PASSED!
     mov rsi, msg_slab_reap_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_slab_color_test
 
 .slab_reap_fail_setup:
     mov rsi, msg_slab_reap_fail_setup_str
@@ -1893,6 +1893,110 @@ test_ctor:
 
 .slab_reap_fail_count:
     mov rsi, msg_slab_reap_fail_count_str
+    call uart_print_str
+    jmp .panic
+
+.run_slab_color_test:
+    mov rsi, msg_slab_color_test_start
+    call uart_print_str
+
+    ; Create a cache with obj_size = 256, align_size = 8
+    mov rdi, msg_test_color_cache_name
+    mov rsi, 256
+    mov rdx, 8
+    mov rcx, 0                      ; ctor = NULL
+    mov r8, 0                       ; dtor = NULL
+    call kmem_cache_create
+    test rax, rax
+    jz .slab_grow_fail
+    mov r12, rax                    ; R12 = cache pointer
+
+    ; Verify that colour_max calculation was correct (expected 3)
+    mov rax, [r12 + kmem_cache_t.colour_max]
+    cmp rax, 3
+    jne .slab_color_fail_max
+
+    ; Grow first slab
+    mov rdi, r12
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+    mov r13, rax                    ; R13 = slab 1
+
+    ; Grow second slab
+    mov rdi, r12
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+    mov r14, rax                    ; R14 = slab 2
+
+    ; Grow third slab
+    mov rdi, r12
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+    mov r15, rax                    ; R15 = slab 3
+
+    ; Calculate relative offsets of mem_start within slab pages
+    mov rax, [r13 + slab_t.mem_start]
+    sub rax, r13                    ; RAX = offset 1
+    
+    mov rbx, [r14 + slab_t.mem_start]
+    sub rbx, r14                    ; RBX = offset 2
+    
+    mov rcx, [r15 + slab_t.mem_start]
+    sub rcx, r15                    ; RCX = offset 3
+
+    ; Assertions: offset2 should be offset1 + 64
+    mov rdx, rax
+    add rdx, 64
+    cmp rbx, rdx
+    jne .slab_color_fail_offset
+
+    ; Assertions: offset3 should be offset1 + 128
+    mov rdx, rax
+    add rdx, 128
+    cmp rcx, rdx
+    jne .slab_color_fail_offset
+
+    ; Clean up the dynamically grown slabs by unlinking and freeing
+    mov rdi, r12
+    mov rsi, kmem_cache_t.slabs_free
+    mov rdx, r13
+    call kmem_slab_unlink
+    mov rdi, r13
+    call heap_free
+
+    mov rdi, r12
+    mov rsi, kmem_cache_t.slabs_free
+    mov rdx, r14
+    call kmem_slab_unlink
+    mov rdi, r14
+    call heap_free
+
+    mov rdi, r12
+    mov rsi, kmem_cache_t.slabs_free
+    mov rdx, r15
+    call kmem_slab_unlink
+    mov rdi, r15
+    call heap_free
+
+    ; Free the cache descriptor itself
+    mov rdi, r12
+    call heap_free
+
+    ; Slab Cache Coloring Test PASSED!
+    mov rsi, msg_slab_color_test_passed
+    call uart_print_str
+    jmp .idle
+
+.slab_color_fail_max:
+    mov rsi, msg_slab_color_fail_max_str
+    call uart_print_str
+    jmp .panic
+
+.slab_color_fail_offset:
+    mov rsi, msg_slab_color_fail_offset_str
     call uart_print_str
     jmp .panic
 
@@ -2832,6 +2936,13 @@ msg_slab_reap_test_passed:      db "VMM Slab Reaping Test PASSED!", 0x0D, 0x0A, 
 msg_slab_reap_fail_setup_str:   db "Failure: Could not setup empty slab in kmem_cache_vma slabs_free.", 0x0D, 0x0A, 0
 msg_slab_reap_fail_eviction_str:db "Failure: Empty slab not reaped/removed from slabs_free under RAM pressure.", 0x0D, 0x0A, 0
 msg_slab_reap_fail_count_str:   db "Failure: Physical free pages count not incremented after reaping slab.", 0x0D, 0x0A, 0
+
+; Slab Cache Coloring Test Messages
+msg_slab_color_test_start:      db "Running VMM Slab Cache Coloring Test...", 0x0D, 0x0A, 0
+msg_slab_color_test_passed:     db "VMM Slab Cache Coloring Test PASSED!", 0x0D, 0x0A, 0
+msg_test_color_cache_name:      db "kmem_test_color", 0
+msg_slab_color_fail_max_str:    db "Failure: Slab cache colour_max calculation is incorrect.", 0x0D, 0x0A, 0
+msg_slab_color_fail_offset_str: db "Failure: Slab starting offset is not correctly colored (staggered by 64 bytes).", 0x0D, 0x0A, 0
 
 
 
