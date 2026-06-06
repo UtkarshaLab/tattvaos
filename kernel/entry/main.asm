@@ -3002,7 +3002,154 @@ test_ctor:
     ; memset Test PASSED!
     mov rsi, msg_memset_test_passed
     call uart_print_str
+    jmp .run_memzero_test
+
+.run_memzero_test:
+    mov rsi, msg_memzero_test_start
+    call uart_print_str
+
+    push r12
+    push r13
+
+    ; Allocate destination buffer (128 bytes)
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memzero_fail_alloc
+    mov r12, rax                    ; R12 = Dst buffer
+
+    ; Run cases
+    mov rcx, 0
+    call .run_one_memzero_case
+    mov rcx, 1
+    call .run_one_memzero_case
+    mov rcx, 7
+    call .run_one_memzero_case
+    mov rcx, 15
+    call .run_one_memzero_case
+    mov rcx, 16
+    call .run_one_memzero_case
+    mov rcx, 23
+    call .run_one_memzero_case
+    mov rcx, 31
+    call .run_one_memzero_case
+    mov rcx, 32
+    call .run_one_memzero_case
+    mov rcx, 35
+    call .run_one_memzero_case
+    mov rcx, 64
+    call .run_one_memzero_case
+    mov rcx, 100
+    call .run_one_memzero_case
+
+    ; Free destination buffer
+    mov rdi, r12
+    call heap_free
+
+    pop r13
+    pop r12
+
+    ; memzero Test PASSED!
+    mov rsi, msg_memzero_test_passed
+    call uart_print_str
     jmp .idle
+
+.run_one_memzero_case:
+    push rcx
+
+    ; 1. Reset destination buffer with sentinel values (1..128)
+    mov rdi, r12
+    xor rdx, rdx
+.sentinel_loop_memzero:
+    mov r8b, dl
+    inc r8b
+    mov [rdi + rdx], r8b
+    inc rdx
+    cmp rdx, 128
+    jb .sentinel_loop_memzero
+
+    ; 2. Call memzero(r12, rcx)
+    mov rdi, r12
+    mov rsi, rcx                    ; RSI = size N
+    call memzero                    ; RAX = dest pointer
+
+    ; 3. Verify return value
+    cmp rax, r12
+    jne .memzero_fail_ret_pop
+
+    ; Restore parameters for verification
+    mov rcx, [rsp]                  ; RCX = size N
+
+    ; 4. Verify first N bytes match 0
+    test rcx, rcx
+    jz .check_tail_memzero          ; if N == 0, skip checking payload
+    xor rdx, rdx                    ; RDX = index i
+.payload_loop_memzero:
+    mov al, [r12 + rdx]
+    test al, al
+    jnz .memzero_fail_data_pop
+    inc rdx
+    cmp rdx, rcx
+    jb .payload_loop_memzero
+
+.check_tail_memzero:
+    mov rcx, [rsp]                  ; RCX = size N
+    ; 5. Verify remaining 128-N bytes are original sentinels (i + 1)
+    mov rdx, rcx                    ; RDX = index i = N
+.tail_loop_memzero:
+    cmp rdx, 128
+    jae .done_case_memzero
+    mov al, [r12 + rdx]
+    mov r8b, dl
+    inc r8b                         ; R8B = index + 1
+    cmp al, r8b                     ; Dst[i] must be i + 1
+    jne .memzero_fail_extra_pop
+    inc rdx
+    jmp .tail_loop_memzero
+
+.done_case_memzero:
+    pop rcx
+    ret
+
+.memzero_fail_ret_pop:
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memzero_fail_ret
+
+.memzero_fail_data_pop:
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memzero_fail_data
+
+.memzero_fail_extra_pop:
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memzero_fail_extra
+
+.memzero_fail_alloc:
+    pop r13
+    pop r12
+    mov rsi, msg_memzero_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.memzero_fail_ret:
+    mov rsi, msg_memzero_fail_ret_str
+    call uart_print_str
+    jmp .panic
+
+.memzero_fail_data:
+    mov rsi, msg_memzero_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.memzero_fail_extra:
+    mov rsi, msg_memzero_fail_extra_str
+    call uart_print_str
+    jmp .panic
 
 .run_one_memset_case:
     push rcx
@@ -4296,6 +4443,13 @@ msg_memset_fail_alloc_str:           db "Failure: Could not allocate memory for 
 msg_memset_fail_ret_str:             db "Failure: memset did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memset_fail_data_str:            db "Failure: memset did not fill the data payload correctly.", 0x0D, 0x0A, 0
 msg_memset_fail_extra_str:           db "Failure: memset corrupted memory past the requested fill size.", 0x0D, 0x0A, 0
+
+msg_memzero_test_start:              db "Running VMM AVX2-Optimized memzero Test...", 0x0D, 0x0A, 0
+msg_memzero_test_passed:             db "VMM AVX2-Optimized memzero Test PASSED!", 0x0D, 0x0A, 0
+msg_memzero_fail_alloc_str:          db "Failure: Could not allocate memory for memzero test buffer.", 0x0D, 0x0A, 0
+msg_memzero_fail_ret_str:            db "Failure: memzero did not return the destination pointer.", 0x0D, 0x0A, 0
+msg_memzero_fail_data_str:           db "Failure: memzero did not zero the data payload correctly.", 0x0D, 0x0A, 0
+msg_memzero_fail_extra_str:          db "Failure: memzero corrupted memory past the requested zero size.", 0x0D, 0x0A, 0
 
 
 
