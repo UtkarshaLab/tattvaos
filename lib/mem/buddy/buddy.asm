@@ -18,6 +18,7 @@ section .text
 
 %include "lib/mem/buddy/buddy_init.asm"
 %include "lib/mem/buddy/buddy_alloc.asm"
+%include "lib/mem/buddy/buddy_free.asm"
 
 section .data
 
