@@ -1,7 +1,7 @@
 ; =============================================================================
 ; Tattva OS — lib/mem/slab/slab_create.asm
 ; =============================================================================
-; Slab Allocator Cache Creation functions (Subfeature 10.1).
+; Slab Allocator Cache Creation functions (Subfeature 10.3).
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -25,6 +25,8 @@ extern heap_alloc
 ;   RSI = pointer to name string (ASCIIZ)
 ;   RDX = object size in bytes
 ;   RCX = object alignment in bytes
+;   R8  = constructor function pointer (optional, can be 0)
+;   R9  = destructor function pointer (optional, can be 0)
 ; Output: none
 ; Clobbers: none (preserves all registers except scratch RAX)
 ; -----------------------------------------------------------------------------
@@ -45,6 +47,8 @@ kmem_cache_create_in_place:
     mov [rdi + kmem_cache_t.name], rsi
     mov [rdi + kmem_cache_t.obj_size], rax
     mov [rdi + kmem_cache_t.align_size], rcx
+    mov [rdi + kmem_cache_t.ctor], r8
+    mov [rdi + kmem_cache_t.dtor], r9
 
     ; Initialize slab list heads to 0 (NULL)
     mov qword [rdi + kmem_cache_t.slabs_full], 0
@@ -63,6 +67,8 @@ kmem_cache_create_in_place:
 ;   RDI = pointer to name string (ASCIIZ)
 ;   RSI = object size in bytes
 ;   RDX = object alignment in bytes
+;   RCX = constructor function pointer (optional, can be 0)
+;   R8  = destructor function pointer (optional, can be 0)
 ; Output:
 ;   RAX = pointer to new kmem_cache_t, or 0 if OOM
 ; -----------------------------------------------------------------------------
@@ -76,10 +82,17 @@ kmem_cache_create:
     mov r12, rdi                    ; R12 = name
     mov r13, rsi                    ; R13 = obj_size
     mov r14, rdx                    ; R14 = align_size
+    
+    push rcx                        ; push ctor to stack
+    push r8                         ; push dtor to stack
 
     ; Allocate memory for the cache descriptor
-    mov rdi, kmem_cache_t_size      ; 56 bytes
+    mov rdi, kmem_cache_t_size
     call heap_alloc                 ; RAX = allocated address
+    
+    pop r9                          ; R9 = dtor
+    pop r8                          ; R8 = ctor
+
     test rax, rax
     jz .fail
 
