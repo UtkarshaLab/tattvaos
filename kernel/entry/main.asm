@@ -58,6 +58,11 @@ extern kmem_slab_unlink
 extern kmem_cache_create
 extern kmem_cache_free
 extern kmem_cache_reap
+extern buddy_init
+extern buddy_free_heads
+extern buddy_start_addr
+extern buddy_end_addr
+extern buddy_metadata
 
 
 
@@ -1988,7 +1993,7 @@ test_ctor:
     ; Slab Cache Coloring Test PASSED!
     mov rsi, msg_slab_color_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_buddy_init_test
 
 .slab_color_fail_max:
     mov rsi, msg_slab_color_fail_max_str
@@ -1997,6 +2002,138 @@ test_ctor:
 
 .slab_color_fail_offset:
     mov rsi, msg_slab_color_fail_offset_str
+    call uart_print_str
+    jmp .panic
+
+.run_buddy_init_test:
+    mov rsi, msg_buddy_test_start
+    call uart_print_str
+
+    ; Step A: Allocate memory for the test buddy allocator
+    ; We allocate 10MB + 8MB = 18MB (18,874,368 bytes) to allow 8MB alignment
+    mov rdi, 18874368
+    call heap_alloc
+    test rax, rax
+    jz .buddy_fail_alloc
+    mov r12, rax                    ; R12 = raw heap block pointer
+
+    ; Align the start address to 8MB boundary
+    mov r13, r12
+    add r13, 8388607
+    mov r14, 8388607
+    not r14
+    and r13, r14                    ; R13 = aligned start address (A)
+
+    ; Initialize the buddy allocator: A (R13), size = 10MB (10,485,760 bytes)
+    mov rdi, r13
+    mov rsi, 10485760
+    call buddy_init
+
+    ; Verify buddy configuration variables
+    mov rax, [buddy_start_addr]
+    cmp rax, r13
+    jne .buddy_fail_config
+
+    mov rax, [buddy_end_addr]
+    mov rbx, r13
+    add rbx, 10485760
+    cmp rax, rbx
+    jne .buddy_fail_config
+
+    ; Verify free list heads:
+    ; Expected:
+    ; buddy_free_heads[11] = A (R13)
+    ; buddy_free_heads[9]  = A + 8MB (R13 + 8,388,608)
+    ; All other free list heads must be NULL (0).
+    xor rcx, rcx                    ; RCX = order (0 to 11)
+.verify_list_loop:
+    cmp rcx, 12
+    jae .verify_list_done
+
+    lea rax, [buddy_free_heads]
+    mov rbx, [rax + rcx * 8]        ; RBX = buddy_free_heads[RCX]
+
+    cmp rcx, 11
+    je .check_order_11
+    cmp rcx, 9
+    je .check_order_9
+
+    ; For other orders, head must be NULL
+    test rbx, rbx
+    jnz .buddy_fail_lists
+    jmp .next_verify
+
+.check_order_11:
+    cmp rbx, r13
+    jne .buddy_fail_lists
+    jmp .next_verify
+
+.check_order_9:
+    mov rdx, r13
+    add rdx, 8388608                ; 8MB
+    cmp rbx, rdx
+    jne .buddy_fail_lists
+
+.next_verify:
+    inc rcx
+    jmp .verify_list_loop
+
+.verify_list_done:
+    ; Verify metadata array:
+    ; page count = 10MB / 4KB = 2560 pages
+    ; index 0 (A) must be 0x8B (free, order 11)
+    ; index 2048 (A + 8MB) must be 0x89 (free, order 9)
+    mov rdx, [buddy_metadata]
+    test rdx, rdx
+    jz .buddy_fail_metadata
+
+    mov al, [rdx + 0]
+    cmp al, 0x8B
+    jne .buddy_fail_metadata
+
+    mov al, [rdx + 2048]
+    cmp al, 0x89
+    jne .buddy_fail_metadata
+
+    ; Clean up
+    mov rdi, [buddy_metadata]
+    call heap_free
+    mov qword [buddy_metadata], 0
+
+    mov rdi, r12
+    call heap_free
+
+    mov qword [buddy_start_addr], 0
+    mov qword [buddy_end_addr], 0
+    
+    lea rdi, [buddy_free_heads]
+    mov rcx, 12
+    xor rax, rax
+    cld
+    rep stosq
+
+    ; Buddy Allocator Initialization Test PASSED!
+    mov rsi, msg_buddy_test_passed
+    call uart_print_str
+    jmp .idle
+
+.buddy_fail_alloc:
+    mov rsi, msg_buddy_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_config:
+    mov rsi, msg_buddy_fail_config_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_lists:
+    mov rsi, msg_buddy_fail_lists_str
+    call uart_print_str
+    jmp .panic
+
+.buddy_fail_metadata:
+    mov rsi, msg_buddy_fail_metadata_str
     call uart_print_str
     jmp .panic
 
@@ -2943,6 +3080,14 @@ msg_slab_color_test_passed:     db "VMM Slab Cache Coloring Test PASSED!", 0x0D,
 msg_test_color_cache_name:      db "kmem_test_color", 0
 msg_slab_color_fail_max_str:    db "Failure: Slab cache colour_max calculation is incorrect.", 0x0D, 0x0A, 0
 msg_slab_color_fail_offset_str: db "Failure: Slab starting offset is not correctly colored (staggered by 64 bytes).", 0x0D, 0x0A, 0
+
+; Buddy Allocator Test Messages
+msg_buddy_test_start:          db "Running Buddy Allocator Initialization Test...", 0x0D, 0x0A, 0
+msg_buddy_test_passed:         db "Buddy Allocator Initialization Test PASSED!", 0x0D, 0x0A, 0
+msg_buddy_fail_alloc_str:      db "Failure: Could not allocate memory for buddy test.", 0x0D, 0x0A, 0
+msg_buddy_fail_config_str:     db "Failure: Buddy allocator config variables (start/end) are incorrect.", 0x0D, 0x0A, 0
+msg_buddy_fail_lists_str:      db "Failure: Buddy free list heads are incorrect or not partitioned properly.", 0x0D, 0x0A, 0
+msg_buddy_fail_metadata_str:   db "Failure: Buddy page metadata array contents are incorrect.", 0x0D, 0x0A, 0
 
 
 
