@@ -56,4 +56,11 @@ struc slab_t
     .used_count     resq 1      ; Count of allocated objects in slab
 endstruc
 
+; Buddy Allocator block header
+struc buddy_block_t
+    .next       resq 1          ; Next free block in list
+    .prev       resq 1          ; Prev free block in list
+    .order      resq 1          ; Order of this block
+endstruc
+
 %endif ; LIB_MEM_MEM_INC
