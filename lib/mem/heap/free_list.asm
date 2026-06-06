@@ -22,15 +22,15 @@ endstruc
 section .text
 
 ; -----------------------------------------------------------------------------
-; heap_init — initializes the free list heap allocator in a given region
+; free_list_init — initializes the free list heap allocator in a given region
 ; Input:
 ;   RDI = start address of heap region
 ;   RSI = size of heap region in bytes
 ; Output: none
 ; Clobbers: RAX, RCX
 ; -----------------------------------------------------------------------------
-global heap_init
-heap_init:
+global free_list_init
+free_list_init:
     ; Align start address to 16 bytes
     mov rax, rdi
     add rax, 15
@@ -55,20 +55,20 @@ heap_init:
     
     ; Set free list head to point to this block
     mov [free_list_head], rax
-
+ 
 .done:
     ret
 
 ; -----------------------------------------------------------------------------
-; heap_alloc — allocates size bytes from the heap, 16-byte aligned
+; free_list_alloc — allocates size bytes from the heap, 16-byte aligned
 ; Input:
 ;   RDI = size of allocation in bytes
 ; Output:
 ;   RAX = pointer to allocated memory, or 0 if OOM
 ; Clobbers: RAX, RCX, RDX, R8, R9
 ; -----------------------------------------------------------------------------
-global heap_alloc
-heap_alloc:
+global free_list_alloc
+free_list_alloc:
     cmp rdi, 0
     je .oom
     
@@ -171,14 +171,14 @@ heap_alloc:
     ret
 
 ; -----------------------------------------------------------------------------
-; heap_free — frees a previously allocated memory block
+; free_list_free — frees a previously allocated memory block
 ; Input:
 ;   RDI = pointer to memory block to free
 ; Output: none
 ; Clobbers: RAX, RCX, RDX, RSI, RDI
 ; -----------------------------------------------------------------------------
-global heap_free
-heap_free:
+global free_list_free
+free_list_free:
     test rdi, rdi
     jz .done
     
@@ -277,15 +277,15 @@ heap_free:
     ret
 
 ; -----------------------------------------------------------------------------
-; heap_realloc — resizes a previously allocated memory block
+; free_list_realloc — resizes a previously allocated memory block
 ; Input:
 ;   RDI = pointer to memory block (can be 0)
 ;   RSI = new size in bytes
 ; Output:
 ;   RAX = pointer to new memory block, or 0 if OOM
 ; -----------------------------------------------------------------------------
-global heap_realloc
-heap_realloc:
+global free_list_realloc
+free_list_realloc:
     test rdi, rdi
     jz .do_alloc
     test rsi, rsi
@@ -305,7 +305,7 @@ heap_realloc:
     push r9
     
     mov rdi, rsi
-    call heap_alloc                 ; RAX = new block pointer
+    call free_list_alloc            ; RAX = new block pointer
     
     pop r9
     pop rsi
@@ -322,6 +322,7 @@ heap_realloc:
     mov rdi, rax                    ; dest = new pointer
     mov rsi, [rsp + 16]             ; source = old pointer
     mov rdx, [rsp + 8]              ; count = old size
+    extern memcpy
     call memcpy
     
     pop rax                         ; rax = new pointer
@@ -330,7 +331,7 @@ heap_realloc:
     
     ; Free old block
     push rax
-    call heap_free
+    call free_list_free
     pop rax
     ret
 
@@ -340,10 +341,10 @@ heap_realloc:
 
 .do_alloc:
     mov rdi, rsi
-    jmp heap_alloc
+    jmp free_list_alloc
 
 .do_free:
-    call heap_free
+    call free_list_free
     xor rax, rax
     ret
 
