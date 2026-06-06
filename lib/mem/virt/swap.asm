@@ -1,7 +1,7 @@
 ; =============================================================================
 ; Tattva OS — lib/mem/virt/swap.asm
 ; =============================================================================
-; Mock swap device and Clock/Second-Chance eviction implementation.
+; Polymorphic swap subsystem and concrete RAM-backed swap helpers.
 ;
 ; Author:  Utkarsha Labs
 ; Target:  x86-64 (64-bit)
@@ -31,6 +31,16 @@ struc page_node_t
     .next       resq 1          ; Next node pointer
 endstruc
 
+; swap_device_t structure definition
+struc swap_device_t
+    .name           resq 1
+    .read_page      resq 1
+    .write_page     resq 1
+    .alloc_slot     resq 1
+    .free_slot      resq 1
+    .max_slots      resq 1
+endstruc
+
 section .text
 
 ; External symbols
@@ -49,8 +59,12 @@ extern inactive_count
 extern replacement_lock_acquire
 extern replacement_lock_release
 
+extern current_swap_device
+extern mock_swap_dev
+extern swap_register_device
+
 ; -----------------------------------------------------------------------------
-; swap_init — resets all mock swap slots
+; swap_init — registers the default Mock RAM device and clears memory slots
 ; -----------------------------------------------------------------------------
 global swap_init
 swap_init:
@@ -58,69 +72,159 @@ swap_init:
     push rcx
     push rax
 
+    ; Register mock_swap_dev as the default active swap device
+    lea rdi, [mock_swap_dev]
+    call swap_register_device
+
+    ; Zero-out the mock RAM swap slots table
     lea rdi, [swap_slots]
     mov rcx, SWAP_MAX_SLOTS
     xor rax, rax
     cld
-    rep stosq                       ; clear all slots pointers
+    rep stosq
 
     pop rax
     pop rcx
     pop rdi
     ret
 
+; =============================================================================
+; Polymorphic Redirections (resolve operations on current_swap_device)
+; =============================================================================
+
 ; -----------------------------------------------------------------------------
-; swap_alloc_slot — finds a free mock swap slot and allocates physical memory backing it
-; Output: RAX = slot index (0 to 511), or -1 if full/OOM
-; Clobbers: none (except RAX)
+; swap_alloc_slot — redirects allocation to active swap device
 ; -----------------------------------------------------------------------------
 global swap_alloc_slot
 swap_alloc_slot:
+    mov rax, [current_swap_device]
+    test rax, rax
+    jz .err
+    jmp [rax + swap_device_t.alloc_slot]
+.err:
+    mov rax, -1
+    ret
+
+; -----------------------------------------------------------------------------
+; swap_free_slot — redirects release to active swap device
+; -----------------------------------------------------------------------------
+global swap_free_slot
+swap_free_slot:
+    ; Input: RDI = slot
+    mov rax, [current_swap_device]
+    test rax, rax
+    jz .exit
+    jmp [rax + swap_device_t.free_slot]
+.exit:
+    ret
+
+; -----------------------------------------------------------------------------
+; swap_write_page — redirects write to active swap device
+; Input: RDI = source physical address, RSI = swap slot index
+; -----------------------------------------------------------------------------
+global swap_write_page
+swap_write_page:
+    push rbx
+    push rdi
+    push rsi
+
+    mov rbx, [current_swap_device]
+    test rbx, rbx
+    jz .err
+
+    ; Swap parameters: write_page expects RDI=slot, RSI=src_phys
+    push rdi                        ; push src_phys
+    push rsi                        ; push slot
+    pop rdi                         ; RDI = slot
+    pop rsi                         ; RSI = src_phys
+
+    call [rbx + swap_device_t.write_page]
+    jmp .done
+.err:
+    xor rax, rax
+.done:
+    pop rsi
+    pop rdi
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; swap_read_page — redirects read to active swap device
+; Input: RDI = destination physical address, RSI = swap slot index
+; -----------------------------------------------------------------------------
+global swap_read_page
+swap_read_page:
+    push rbx
+    push rdi
+    push rsi
+
+    mov rbx, [current_swap_device]
+    test rbx, rbx
+    jz .err
+
+    ; Swap parameters: read_page expects RDI=slot, RSI=dest_phys
+    push rdi                        ; push dest_phys
+    push rsi                        ; push slot
+    pop rdi                         ; RDI = slot
+    pop rsi                         ; RSI = dest_phys
+
+    call [rbx + swap_device_t.read_page]
+    jmp .done
+.err:
+    xor rax, rax
+.done:
+    pop rsi
+    pop rdi
+    pop rbx
+    ret
+
+; =============================================================================
+; Concrete RAM-Backed Swap Helper Functions (used by mock_swap_dev)
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; ram_swap_alloc_slot — allocates physical backing frame for slot
+; -----------------------------------------------------------------------------
+global ram_swap_alloc_slot
+ram_swap_alloc_slot:
     push rcx
     push rsi
 
     lea rsi, [swap_slots]
     xor rcx, rcx
-
 .loop:
     cmp rcx, SWAP_MAX_SLOTS
     jge .full
 
     mov rax, [rsi + rcx * 8]
     test rax, rax
-    jz .found                       ; if slot backing page is 0, it's free!
+    jz .found
 
     inc rcx
     jmp .loop
-
 .found:
-    ; Allocate a physical page to store the swapped data
     push rcx
     call phys_alloc_page
     pop rcx
     test rax, rax
-    jz .full                        ; OOM when allocating mock swap backing page
+    jz .full
 
-    ; Store the allocated physical page in the slot
     mov [rsi + rcx * 8], rax
-    mov rax, rcx                    ; RAX = slot index
+    mov rax, rcx
     jmp .done
-
 .full:
     mov rax, -1
-
 .done:
     pop rsi
     pop rcx
     ret
 
 ; -----------------------------------------------------------------------------
-; swap_free_slot — frees a swap slot and its backing physical page
-; Input: RDI = slot index
-; Output: none
+; ram_swap_free_slot — frees physical backing frame of slot
 ; -----------------------------------------------------------------------------
-global swap_free_slot
-swap_free_slot:
+global ram_swap_free_slot
+ram_swap_free_slot:
+    ; Input: RDI = slot index
     push rax
     push rbx
     push rdi
@@ -133,15 +237,12 @@ swap_free_slot:
     test rax, rax
     jz .done
 
-    ; Free the backing physical page
     push rdi
     mov rdi, rax
     call phys_free_page
     pop rdi
 
-    ; Clear slot
     mov qword [rbx + rdi * 8], 0
-
 .done:
     pop rdi
     pop rbx
@@ -149,73 +250,65 @@ swap_free_slot:
     ret
 
 ; -----------------------------------------------------------------------------
-; swap_write_page — copies data from physical page to swap slot
-; Input:
-;   RDI = source physical address
-;   RSI = swap slot index
-; Output: none
-; Clobbers: RAX, RCX, RDX, RDI, RSI
+; ram_swap_write_page — copies data from physical source to mock RAM slot
 ; -----------------------------------------------------------------------------
-global swap_write_page
-swap_write_page:
+global ram_swap_write_page
+ram_swap_write_page:
+    ; Input: RDI = src_phys, RSI = slot
     push r12
     push r13
 
-    mov r12, rdi                    ; R12 = src phys addr
-    mov r13, rsi                    ; R13 = slot index
+    mov r12, rdi
+    mov r13, rsi
 
-    ; Get backing page address of swap slot
     lea rax, [swap_slots]
-    mov rdi, [rax + r13 * 8]        ; RDI = dest mock page
+    mov rdi, [rax + r13 * 8]
     test rdi, rdi
-    jz .exit                        ; safety check: slot must be allocated
+    jz .exit
 
-    mov rsi, r12                    ; RSI = src page
-    mov rdx, 4096                   ; copy 4KB
+    mov rsi, r12
+    mov rdx, 4096
     call memcpy
-
 .exit:
     pop r13
     pop r12
     ret
 
 ; -----------------------------------------------------------------------------
-; swap_read_page — copies data from swap slot to physical page
-; Input:
-;   RDI = destination physical address
-;   RSI = swap slot index
-; Output: none
-; Clobbers: RAX, RCX, RDX, RDI, RSI
+; ram_swap_read_page — copies data from mock RAM slot to physical destination
 ; -----------------------------------------------------------------------------
-global swap_read_page
-swap_read_page:
+global ram_swap_read_page
+ram_swap_read_page:
+    ; Input: RDI = dest_phys, RSI = slot
     push r12
     push r13
 
-    mov r12, rdi                    ; R12 = dest phys addr
-    mov r13, rsi                    ; R13 = slot index
+    mov r12, rdi
+    mov r13, rsi
 
-    ; Get backing page address of swap slot
     lea rax, [swap_slots]
-    mov rsi, [rax + r13 * 8]        ; RSI = src mock page
+    mov rsi, [rax + r13 * 8]
     test rsi, rsi
     jz .exit
 
-    mov rdi, r12                    ; RDI = dest page
-    mov rdx, 4096                   ; copy 4KB
+    mov rdi, r12
+    mov rdx, 4096
     call memcpy
-
 .exit:
     pop r13
     pop r12
     ret
 
+; =============================================================================
+; Clock/Second-Chance Page Eviction Routine
+; =============================================================================
+
 ; -----------------------------------------------------------------------------
 ; page_replace_clock_evict — Second-Chance / Clock Eviction algorithm
-; Finds an untouched page mapping (Accessed = 0), evicts it to swap,
+; Finds an untouched page mapping (Accessed = 0), evicts it to active swap,
 ; and frees its physical frame.
 ; Output:
-;   RAX = 1 on success, 0 on failure (no candidates/swap full)
+;   RAX = 1 on success, 0 on failure
 ; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11
 ; -----------------------------------------------------------------------------
 global page_replace_clock_evict
@@ -364,7 +457,7 @@ page_replace_clock_evict:
 
     mov r10, rax                    ; R10 = swap slot index
 
-    ; 2. Copy page contents to the swap slot
+    ; 2. Copy page contents to the active swap device
     mov rdi, r15                    ; source physical address
     mov rsi, r10                    ; slot index
     call swap_write_page
