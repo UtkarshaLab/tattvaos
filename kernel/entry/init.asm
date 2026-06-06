@@ -154,6 +154,7 @@ mm_init:
     call heap_init
     call page_list_init
     call swap_init
+    call kswapd_init
     ret
 
 .error:
