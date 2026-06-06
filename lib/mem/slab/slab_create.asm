@@ -50,6 +50,44 @@ kmem_cache_create_in_place:
     mov [rdi + kmem_cache_t.ctor], r8
     mov [rdi + kmem_cache_t.dtor], r9
 
+    ; Calculate colour_max based on leftover bytes
+    push rbx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+
+    mov r8, rcx                     ; R8 = align_size
+    dec r8                          ; R8 = align - 1
+    mov r9, 56                      ; R9 = slab_t_size (56 bytes)
+    add r9, r8
+    not r8
+    and r9, r8                      ; R9 = mem_start_initial
+    
+    mov r10, 4096
+    sub r10, r9                     ; R10 = space left in slab
+    
+    mov rsi, rax                    ; RSI = obj_size (aligned)
+    mov rax, r10                    ; RAX = space
+    xor rdx, rdx
+    div rsi                         ; RAX = obj_count capacity
+    
+    imul rax, rsi                   ; RAX = obj_count * obj_size
+    sub r10, rax                    ; R10 = leftover space
+    
+    shr r10, 6                      ; R10 = colour_max (leftover / 64)
+
+    pop r9
+    pop r8
+    pop rsi
+    pop rdi
+    pop rdx
+    pop rbx
+
+    mov [rdi + kmem_cache_t.colour_max], r10
+    mov qword [rdi + kmem_cache_t.colour_next], 0
+
     ; Initialize slab list heads to 0 (NULL)
     mov qword [rdi + kmem_cache_t.slabs_full], 0
     mov qword [rdi + kmem_cache_t.slabs_part], 0
