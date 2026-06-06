@@ -24,6 +24,8 @@
 %include "lib/mem/heap/bump.asm"
 %include "lib/mem/heap/free_list.asm"
 %include "lib/mem/heap/heap.asm"
+%include "lib/mem/heap/defrag.asm"
+
 
 %include "lib/mem/virt/pgtable.asm"
 %include "lib/mem/virt/tlb.asm"
