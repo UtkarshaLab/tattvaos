@@ -46,6 +46,10 @@ extern mtrr_disable_variable
 extern fb_init
 extern fb_benchmark
 extern heap_active_allocator
+extern heap_register_relocatable
+extern heap_unregister_relocatable
+extern heap_compact
+
 
 
 
@@ -1375,7 +1379,125 @@ kernel_main:
     ; Heap Allocator Test PASSED!
     mov rsi, msg_heap_test_passed
     call uart_print_str
+    jmp .run_defrag_test
+
+.run_defrag_test:
+    mov rsi, msg_defrag_test_start
+    call uart_print_str
+
+    ; Step A: Allocate three consecutive 64-byte blocks: A, B, C
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .defrag_fail_alloc_A
+    mov [ptr_A], rax
+
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .defrag_fail_alloc_B
+    mov [ptr_B], rax
+
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .defrag_fail_alloc_C
+    mov [ptr_C], rax
+
+    ; Step B: Register the pointer variables
+    mov rdi, ptr_A
+    call heap_register_relocatable
+    test rax, rax
+    jz .defrag_fail_reg
+
+    mov rdi, ptr_B
+    call heap_register_relocatable
+    test rax, rax
+    jz .defrag_fail_reg
+
+    mov rdi, ptr_C
+    call heap_register_relocatable
+    test rax, rax
+    jz .defrag_fail_reg
+
+    ; Save block addresses for assertions
+    mov r12, [ptr_A]                ; R12 = A's original payload address
+    mov r13, [ptr_B]                ; R13 = B's original payload address
+    mov r14, [ptr_C]                ; R14 = C's original payload address
+
+    ; Step C: Free middle block B to create a hole
+    mov rdi, [ptr_B]
+    call heap_free
+
+    ; Step D: Perform Compaction!
+    call heap_compact
+    test rax, rax
+    jz .defrag_fail_compact
+
+    ; Step E: Assertions
+    ; 1. ptr_A must still point to A's original payload address
+    mov rax, [ptr_A]
+    cmp rax, r12
+    jne .defrag_fail_assert_A
+
+    ; 2. ptr_C must now point to B's original payload address (relocated payload)
+    mov rax, [ptr_C]
+    cmp rax, r13
+    jne .defrag_fail_assert_C
+
+    ; Step F: Clean up and unregister variables
+    mov rdi, ptr_A
+    call heap_unregister_relocatable
+    mov rdi, ptr_B
+    call heap_unregister_relocatable
+    mov rdi, ptr_C
+    call heap_unregister_relocatable
+
+    ; Free compacted blocks A and C
+    mov rdi, [ptr_A]
+    call heap_free
+    mov rdi, [ptr_C]
+    call heap_free
+
+    ; Heap Defragmenter Test PASSED!
+    mov rsi, msg_defrag_test_passed
+    call uart_print_str
     jmp .idle
+
+.defrag_fail_alloc_A:
+    mov rsi, msg_defrag_fail_alloc_A_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_alloc_B:
+    mov rsi, msg_defrag_fail_alloc_B_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_alloc_C:
+    mov rsi, msg_defrag_fail_alloc_C_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_reg:
+    mov rsi, msg_defrag_fail_reg_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_compact:
+    mov rsi, msg_defrag_fail_compact_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_assert_A:
+    mov rsi, msg_defrag_fail_assert_A_str
+    call uart_print_str
+    jmp .panic
+
+.defrag_fail_assert_C:
+    mov rsi, msg_defrag_fail_assert_C_str
+    call uart_print_str
+    jmp .panic
 
 .heap_fail_active:
     mov rsi, msg_heap_fail_active_str
@@ -2263,6 +2385,22 @@ msg_heap_fail_alloc_split2_str: db "Failure: Second split allocation (16 bytes) 
 msg_heap_fail_split_rem_str: db "Failure: Second split did not return expected remainder address (B+48).", 0x0D, 0x0A, 0
 msg_heap_fail_coalesce_str:  db "Failure: Allocation (256 bytes) from coalesced block returned null.", 0x0D, 0x0A, 0
 msg_heap_fail_coalesce_ptr_str: db "Failure: Coalesced allocation did not return block A start address.", 0x0D, 0x0A, 0
+
+; Heap Defragmenter Test Variables & Messages
+align 8
+ptr_A: dq 0
+ptr_B: dq 0
+ptr_C: dq 0
+
+msg_defrag_test_start:         db "Running VMM Heap Compaction/Defragmentation Test...", 0x0D, 0x0A, 0
+msg_defrag_test_passed:        db "VMM Heap Compaction/Defragmentation Test PASSED!", 0x0D, 0x0A, 0
+msg_defrag_fail_alloc_A_str:   db "Failure: Allocation A returned null.", 0x0D, 0x0A, 0
+msg_defrag_fail_alloc_B_str:   db "Failure: Allocation B returned null.", 0x0D, 0x0A, 0
+msg_defrag_fail_alloc_C_str:   db "Failure: Allocation C returned null.", 0x0D, 0x0A, 0
+msg_defrag_fail_reg_str:       db "Failure: Pointer registration returned 0.", 0x0D, 0x0A, 0
+msg_defrag_fail_compact_str:   db "Failure: heap_compact returned 0.", 0x0D, 0x0A, 0
+msg_defrag_fail_assert_A_str:  db "Failure: A was moved or corrupted during compaction.", 0x0D, 0x0A, 0
+msg_defrag_fail_assert_C_str:  db "Failure: C pointer was not updated to B's old address.", 0x0D, 0x0A, 0
 
 
 
