@@ -78,6 +78,8 @@ extern arena_destroy_local
 extern pool_create
 extern pool_alloc
 extern pool_free
+extern pool_grow
+extern pool_destroy
 
 
 
@@ -2779,18 +2781,91 @@ test_ctor:
     cmp rax, 4                      ; count must remain 4 (invalid free ignored)
     jne .pool_fail_safety_pop
 
+    ; Step J: Test Dynamic Pool Expansion (Subfeature 13.3)
+    ; We currently have 4 slots allocated (capacity = 4, count = 4, free_head = NULL).
+    ; Request a 5th allocation. This must trigger pool_grow.
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_grow_alloc
+    mov r8, rax                     ; R8 = 5th slot (in the new 4KB page)
+
+    ; Verify that pool capacity grew
+    ; Expected capacity = 4 + (4080 / 32) = 4 + 127 = 131
+    mov rax, [r12 + pool_t.capacity]
+    cmp rax, 131
+    jne .pool_fail_capacity_grow
+
+    ; Verify used count is 5
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 5
+    jne .pool_fail_count_grow
+
+    ; Request a 6th allocation
+    mov rdi, r12
+    call pool_alloc
+    test rax, rax
+    jz .pool_fail_grow_alloc
+    mov r9, rax                     ; R9 = 6th slot
+
+    ; Verify used count is 6
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 6
+    jne .pool_fail_count_grow
+
+    ; Free the 5th slot (R8)
+    mov rdi, r12
+    mov rsi, r8
+    call pool_free
+
+    ; Free the 6th slot (R9)
+    mov rdi, r12
+    mov rsi, r9
+    call pool_free
+
+    ; Verify used count is back to 4
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4
+    jne .pool_fail_count_grow
+
+    ; Verify that freeing invalid/misaligned slots inside the grown block is ignored
+    ; Let's get an address inside the grown page that is misaligned: R8 + 15
+    mov rsi, r8
+    add rsi, 15
+    mov rdi, r12
+    call pool_free
+    mov rax, [r12 + pool_t.count]
+    cmp rax, 4                      ; count must remain 4
+    jne .pool_fail_safety_pop
+
     pop rbp                         ; restore RBP
 
-    ; Step J: Clean up memory blocks
-    mov rdi, [r12 + pool_t.memory]
-    call heap_free
+    ; Step K: Clean up pool using pool_destroy
     mov rdi, r12
-    call heap_free
+    call pool_destroy
 
     ; Pool Allocator Test PASSED!
     mov rsi, msg_pool_test_passed
     call uart_print_str
     jmp .idle
+
+.pool_fail_grow_alloc:
+    pop rbp
+    mov rsi, msg_pool_fail_grow_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_capacity_grow:
+    pop rbp
+    mov rsi, msg_pool_fail_capacity_grow_str
+    call uart_print_str
+    jmp .panic
+
+.pool_fail_count_grow:
+    pop rbp
+    mov rsi, msg_pool_fail_count_grow_str
+    call uart_print_str
+    jmp .panic
 
 .pool_fail_alloc_pop:
     pop rbp
@@ -3852,6 +3927,9 @@ msg_pool_fail_free_list_str:         db "Failure: Intrusive stack-based free lis
 msg_pool_fail_reuse_str:             db "Failure: pool_alloc did not pop the head slot from the free list.", 0x0D, 0x0A, 0
 msg_pool_fail_safety_str:            db "Failure: Invalid pool_free call was not ignored or corrupted the count.", 0x0D, 0x0A, 0
 msg_pool_fail_tag_str:               db "Failure: Pool generation tag was not updated correctly after CAS operations.", 0x0D, 0x0A, 0
+msg_pool_fail_grow_alloc_str:        db "Failure: pool_alloc returned NULL during dynamic pool expansion.", 0x0D, 0x0A, 0
+msg_pool_fail_capacity_grow_str:     db "Failure: Pool capacity did not grow correctly.", 0x0D, 0x0A, 0
+msg_pool_fail_count_grow_str:        db "Failure: Pool count after growth/free operations is incorrect.", 0x0D, 0x0A, 0
 
 
 
