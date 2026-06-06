@@ -489,7 +489,9 @@ page_replace_clock_evict:
     mov rdi, [rbx + page_node_t.virt_addr]
     xor rsi, rsi
     push r8                         ; preserve Zswap indicator flag
+    push r10                        ; preserve swap slot index (R10)
     call virt_walk_table
+    pop r10                         ; restore swap slot index
     pop r8                          ; restore Zswap indicator flag
     cmp rax, r13
     jne .abort_evict                ; PTE changed, abort!
