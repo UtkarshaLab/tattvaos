@@ -28,6 +28,8 @@ extern page_list_move_to_inactive
 extern page_list_move_to_active
 extern virt_unmap
 extern phys_free_page
+extern page_replace_clock_evict
+extern phys_state
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -369,6 +371,135 @@ kernel_main:
     ; Active/Inactive Lists Test PASSED!
     mov rsi, msg_rep_test_passed
     call uart_print_str
+
+    ; 7. Run VMM Clock/Second-Chance Eviction Test
+    mov rsi, msg_clock_test_start
+    call uart_print_str
+
+    ; Step A: Allocate a physical page for user mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .clock_fail_alloc
+    mov r14, rax                    ; R14 = physical page address
+
+    ; Step B: Initialize page content
+    mov rdi, r14
+    mov rsi, msg_clock_test_data
+    mov rdx, 25                     ; length of msg_clock_test_data
+    call memcpy
+
+    ; Step C: Create a VMA for the tracked virtual address space
+    ; start=0x20000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_USER (0x0B)
+    mov rdi, 0x20000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .clock_fail_vma
+    mov r15, rax                    ; R15 = VMA pointer
+
+    ; Step D: Map 0x20000000 to the physical page (triggers active list hook)
+    mov rdi, 0x20000000
+    mov rsi, r14
+    mov rdx, 0x07                   ; PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER
+    call virt_map
+    test rax, rax
+    jz .clock_fail_map
+
+    ; Step E: Move page to inactive list (to make it a candidate for eviction)
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Verify it is in inactive list
+    call page_list_get_inactive_count
+    cmp rax, 1
+    jne .clock_fail_inactive
+
+    ; Step F: Clear Accessed bit in PTE to simulate no recent accesses
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .clock_fail_walk
+    and qword [rax], ~0x20          ; clear PAGE_ACCESSED (bit 5)
+
+    ; Step G: Trigger Clock Eviction!
+    call page_replace_clock_evict
+    test rax, rax
+    jz .clock_fail_evict
+
+    ; Step H: Verify page is evicted
+    ; 1. PTE Present bit should be 0
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .clock_fail_walk_evicted
+    mov rcx, [rax]
+    test rcx, 1                     ; present bit set?
+    jnz .clock_fail_still_present
+
+    ; 2. PTE Swapped bit should be 1
+    test rcx, 0x400                 ; PAGE_SWAPPED (bit 10) set?
+    jz .clock_fail_not_swapped
+
+    ; 3. Telemetry swap_pages count should be 1
+    mov rax, [phys_state + phys_state_t.swap_pages]
+    cmp rax, 1
+    jne .clock_fail_stats
+
+    ; 4. Active/Inactive list counts should return to 0
+    call page_list_get_active_count
+    test rax, rax
+    jnz .clock_fail_list_counts
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .clock_fail_list_counts
+
+    mov rsi, msg_clock_evicted_ok
+    call uart_print_str
+
+    ; Step I: Access the evicted page to trigger swap-in page fault!
+    ; We read from 0x20000000. It should transparently swap-in the page!
+    mov rax, [0x20000000]
+
+    ; Step J: Verify data is intact
+    mov rax, [0x20000000]
+    mov rbx, 0x434F4D5F50415753     ; 'SWAP_MOC' in little-endian
+    cmp rax, rbx
+    jne .clock_fail_data_corrupt
+
+    ; Step K: Verify page statistics and lists are restored
+    ; 1. Telemetry swap_pages count should return to 0
+    mov rax, [phys_state + phys_state_t.swap_pages]
+    test rax, rax
+    jnz .clock_fail_stats_restore
+
+    ; 2. Page should be back in the active list (count = 1)
+    call page_list_get_active_count
+    cmp rax, 1
+    jne .clock_fail_active_restore
+    call page_list_get_inactive_count
+    test rax, rax
+    jnz .clock_fail_inactive_restore
+
+    ; Step L: Clean up
+    ; Get new physical page mapping
+    mov rdi, 0x20000000
+    call virt_translate
+    mov r14, rax                    ; save new physical address for freeing
+
+    mov rdi, 0x20000000
+    call virt_unmap
+    
+    mov rdi, r14
+    call phys_free_page
+    mov rdi, r15
+    call vma_destroy
+
+    ; Clock Eviction Test PASSED!
+    mov rsi, msg_clock_test_passed
+    call uart_print_str
     jmp .idle
 
 .rep_fail_init_count:
@@ -521,6 +652,81 @@ kernel_main:
     call uart_print_str
     jmp .panic
 
+.clock_fail_alloc:
+    mov rsi, msg_clock_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_vma:
+    mov rsi, msg_clock_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_map:
+    mov rsi, msg_clock_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_inactive:
+    mov rsi, msg_clock_fail_inactive_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_walk:
+    mov rsi, msg_clock_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_evict:
+    mov rsi, msg_clock_fail_evict_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_walk_evicted:
+    mov rsi, msg_clock_fail_walk_ev_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_still_present:
+    mov rsi, msg_clock_fail_still_pres_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_not_swapped:
+    mov rsi, msg_clock_fail_not_swap_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_stats:
+    mov rsi, msg_clock_fail_stats_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_list_counts:
+    mov rsi, msg_clock_fail_list_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_data_corrupt:
+    mov rsi, msg_clock_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_stats_restore:
+    mov rsi, msg_clock_fail_stats_res_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_active_restore:
+    mov rsi, msg_clock_fail_act_res_str
+    call uart_print_str
+    jmp .panic
+
+.clock_fail_inactive_restore:
+    mov rsi, msg_clock_fail_inact_res_str
+    call uart_print_str
+    jmp .panic
+
 .panic:
     mov rsi, msg_test_failed
     call uart_print_str
@@ -603,3 +809,24 @@ msg_rep_fail_inactive_in_str:  db "Failure: Inactive count not 1 after moving to
 msg_rep_fail_active_back_str:  db "Failure: Active count not 1 after moving back to active.", 0x0D, 0x0A, 0
 msg_rep_fail_inactive_back_str:db "Failure: Inactive count non-zero after moving back to active.", 0x0D, 0x0A, 0
 msg_rep_fail_final_str:        db "Failure: Counts non-zero after unmapping page.", 0x0D, 0x0A, 0
+
+msg_clock_test_start:          db "Running VMM Clock/Second-Chance Eviction Test...", 0x0D, 0x0A, 0
+msg_clock_evicted_ok:          db "Clock eviction successful. Page marked swapped in PTE and physical frame freed.", 0x0D, 0x0A, 0
+msg_clock_test_passed:         db "VMM Clock/Second-Chance Eviction Test PASSED!", 0x0D, 0x0A, 0
+msg_clock_test_data:           db "SWAP_MOCK_TEST_DATA", 0
+
+msg_clock_fail_alloc_str:      db "Failure: Could not allocate physical page for clock test.", 0x0D, 0x0A, 0
+msg_clock_fail_vma_str:        db "Failure: Could not create VMA for clock test.", 0x0D, 0x0A, 0
+msg_clock_fail_map_str:        db "Failure: Could not map page for clock test.", 0x0D, 0x0A, 0
+msg_clock_fail_inactive_str:   db "Failure: Page not in inactive list before eviction.", 0x0D, 0x0A, 0
+msg_clock_fail_walk_str:       db "Failure: Could not walk page table for virtual address.", 0x0D, 0x0A, 0
+msg_clock_fail_evict_str:      db "Failure: Clock eviction routine returned failure.", 0x0D, 0x0A, 0
+msg_clock_fail_walk_ev_str:    db "Failure: Walk failed for evicted page virtual address.", 0x0D, 0x0A, 0
+msg_clock_fail_still_pres_str: db "Failure: Evicted page is still marked present in PTE.", 0x0D, 0x0A, 0
+msg_clock_fail_not_swap_str:   db "Failure: Evicted page does not have PAGE_SWAPPED set in PTE.", 0x0D, 0x0A, 0
+msg_clock_fail_stats_str:      db "Failure: Swap pages telemetry count not 1 after eviction.", 0x0D, 0x0A, 0
+msg_clock_fail_list_str:       db "Failure: Active or inactive counts not 0 after eviction.", 0x0D, 0x0A, 0
+msg_clock_fail_data_str:       db "Failure: Swapped-in data is corrupt or mismatch.", 0x0D, 0x0A, 0
+msg_clock_fail_stats_res_str:  db "Failure: Telemetry swap pages count not 0 after swap-in.", 0x0D, 0x0A, 0
+msg_clock_fail_act_res_str:    db "Failure: Active list count not 1 after swap-in.", 0x0D, 0x0A, 0
+msg_clock_fail_inact_res_str:  db "Failure: Inactive list count not 0 after swap-in.", 0x0D, 0x0A, 0
