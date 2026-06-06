@@ -41,6 +41,7 @@ kernel_entry:
 %include "arch/x86_64/interrupts.asm"
 %include "lib/mem/mem.asm"
 %include "lib/hw/ucpu/mtrr.asm"
+%include "lib/hw/ucpu/pat.asm"
 
 align 8
 kernel_end:
