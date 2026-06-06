@@ -156,6 +156,7 @@ mm_init:
     call swap_init
     call kswapd_init
     call heap_transition
+    call kmem_cache_init_all
     ret
 
 
