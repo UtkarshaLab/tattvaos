@@ -56,13 +56,25 @@ pool_free:
     test rdx, rdx
     jnz .exit_pop                   ; if offset is not a multiple of obj_size, ignore
 
-    ; Push the slot to the head of the free list
-    mov rcx, [rdi + pool_t.free_head] ; RCX = current free_head
-    mov [rsi], rcx                  ; store current free_head in freed slot
-    mov [rdi + pool_t.free_head], rsi ; pool.free_head = freed slot
+    ; Load current free_head and free_tag to expected registers RDX:RAX
+    mov rax, [rdi + pool_t.free_head]
+    mov rdx, [rdi + pool_t.free_tag]
 
-    ; Decrement count
-    dec qword [rdi + pool_t.count]
+.retry:
+    ; Write current free_head (RAX) into the first 8 bytes of the freed slot (RSI)
+    mov [rsi], rax
+
+    ; Set new head = rsi (RBX) and new tag = current tag + 1 (RCX)
+    mov rbx, rsi
+    mov rcx, rdx
+    inc rcx                         ; RCX = new_tag = tag + 1
+
+    ; Perform double-width Compare-And-Swap
+    lock cmpxchg16b [rdi + pool_t.free_head]
+    jnz .retry                      ; if ZF = 0, retry with updated RDX:RAX
+
+    ; CAS succeeded! Decrement used count atomically
+    lock dec qword [rdi + pool_t.count]
 
 .exit_pop:
     pop rax

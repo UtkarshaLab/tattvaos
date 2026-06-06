@@ -82,6 +82,7 @@ pool_create:
     mov [r14 + pool_t.count], qword 0
     mov [r14 + pool_t.memory], rax
     mov [r14 + pool_t.free_head], rax
+    mov qword [r14 + pool_t.free_tag], 0
 
     ; 3. Build the intrusive stack-based free list
     mov rdx, rax                    ; RDX = current slot pointer

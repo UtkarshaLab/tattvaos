@@ -30,21 +30,35 @@ pool_alloc:
     test rdi, rdi
     jz .fail
 
-    ; Retrieve the head of the free list
+    push rbx
+
+    ; Load initial head and tag to expected registers RDX:RAX
     mov rax, [rdi + pool_t.free_head]
+    mov rdx, [rdi + pool_t.free_tag]
+
+.retry:
     test rax, rax
-    jz .fail                        ; if free_head is NULL, pool is exhausted
+    jz .fail_pop                    ; if free_head is NULL, pool is exhausted
 
-    ; Pop the head slot from the free list
-    ; Read the next free slot address from the first 8 bytes of the current free slot
-    mov rdx, [rax]                  ; RDX = next free slot address
-    mov [rdi + pool_t.free_head], rdx ; pool.free_head = next
+    ; Read next pointer from first 8 bytes of expected free slot
+    mov rbx, [rax]                  ; RBX = new_head (next slot)
 
-    ; Increment the active count
-    inc qword [rdi + pool_t.count]
+    ; Increment expected tag to form new tag
+    mov rcx, rdx
+    inc rcx                         ; RCX = new_tag = tag + 1
 
+    ; Perform double-width Compare-And-Swap
+    lock cmpxchg16b [rdi + pool_t.free_head]
+    jnz .retry                      ; if ZF = 0, retry with updated RDX:RAX
+
+    ; CAS succeeded! Increment used count atomically
+    lock inc qword [rdi + pool_t.count]
+
+    pop rbx
     ret
 
+.fail_pop:
+    pop rbx
 .fail:
     xor rax, rax
     ret
