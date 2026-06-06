@@ -36,6 +36,7 @@ extern nvme_swap_dev
 extern kswapd_low_watermark
 extern kswapd_high_watermark
 extern kswapd_check_and_reclaim
+extern zswap_compressed_pages
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -813,7 +814,371 @@ kernel_main:
     mov rsi, msg_kswapd_test_passed
     call uart_print_str
 
+    ; -------------------------------------------------------------
+    ; 9. Run VMM Zswap Compressed Cache Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_zswap_test_start
+    call uart_print_str
+
+    ; Step A: Register the default mock RAM swap device (clean state)
+    lea rdi, [mock_swap_dev]
+    call swap_register_device
+
+    ; Verify that initial zswap compressed pages telemetry is 0
+    mov rax, [zswap_compressed_pages]
+    test rax, rax
+    jnz .zswap_fail_init_telemetry
+
+    ; --- Part 1: Compressible Page Test ---
+    ; Allocate a physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .zswap_fail_alloc1
+    mov r14, rax                    ; R14 = physical address
+
+    ; Initialize the page content with a highly compressible pattern (repeated 0xAA)
+    mov rdi, r14
+    mov al, 0xAA
+    mov rcx, 4096
+    cld
+    rep stosb
+
+    ; Set a recognizable signature at the start to verify data integrity later
+    mov rdi, r14
+    mov rsi, msg_zswap_comp_sig
+    mov rdx, 17                     ; length of "COMPRESSIBLE_SIG" (16 + null)
+    call memcpy
+
+    ; Create a VMA: start=0x30000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_USER
+    mov rdi, 0x30000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .zswap_fail_vma1
+    mov r15, rax                    ; R15 = VMA pointer
+
+    ; Map 0x30000000 to the physical page
+    mov rdi, 0x30000000
+    mov rsi, r14
+    mov rdx, 0x07                   ; PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER
+    call virt_map
+    test rax, rax
+    jz .zswap_fail_map1
+
+    ; Move page to inactive list to prepare for eviction
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Clear Accessed bit in PTE to ensure eviction choice
+    mov rdi, 0x30000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .zswap_fail_walk1
+    and qword [rax], ~0x20          ; clear PAGE_ACCESSED
+
+    ; Trigger Clock Eviction (which will try Zswap first)
+    call page_replace_clock_evict
+    test rax, rax
+    jz .zswap_fail_evict1
+
+    ; Verify Page is Evicted and Swapped to Zswap Cache
+    ; 1. PTE Present bit should be 0
+    mov rdi, 0x30000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .zswap_fail_walk_ev1
+    mov rcx, [rax]
+    test rcx, 1                     ; present?
+    jnz .zswap_fail_still_present1
+
+    ; 2. PTE PAGE_SWAPPED (bit 10) should be 1
+    test rcx, 0x400                 ; PAGE_SWAPPED
+    jz .zswap_fail_not_swapped1
+
+    ; 3. PTE PAGE_ZSWAPPED (bit 11) should be 1
+    test rcx, 0x800                 ; PAGE_ZSWAPPED
+    jz .zswap_fail_not_zswapped1
+
+    ; 4. Zswap telemetry should show 1 compressed page
+    mov rax, [zswap_compressed_pages]
+    cmp rax, 1
+    jne .zswap_fail_telemetry1
+
+    mov rsi, msg_zswap_evicted_ok
+    call uart_print_str
+
+    ; Access page to trigger transparent swap-in page fault (decompression)
+    mov rax, [0x30000000]
+
+    ; Verify data integrity after decompression
+    mov rsi, 0x30000000             ; RSI = virtual address
+    mov rbx, 0x53534552504D4F43     ; 'COMPRESS' in little-endian ("COMPRESSIBLE_SIG")
+    cmp [rsi], rbx
+    jne .zswap_fail_data_corrupt1
+
+    ; Verify zswap telemetry returns to 0
+    mov rax, [zswap_compressed_pages]
+    test rax, rax
+    jnz .zswap_fail_telemetry_res1
+
+    ; Clean up Part 1
+    mov rdi, 0x30000000
+    call virt_translate
+    mov r14, rax                    ; get new physical frame address
+
+    mov rdi, 0x30000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+
+    mov rdi, r15
+    call vma_destroy
+
+    mov rsi, msg_zswap_comp_passed
+    call uart_print_str
+
+
+    ; --- Part 2: Uncompressible Page Test ---
+    ; Allocate a physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .zswap_fail_alloc2
+    mov r14, rax
+
+    ; Initialize page with an uncompressible ascending byte sequence (0, 1, 2, ... 255 repeating)
+    mov rdi, r14
+    xor rcx, rcx
+.fill_uncompressible:
+    cmp rcx, 4096
+    jge .fill_uncomp_done
+    mov rdx, rcx
+    and rdx, 0xFF                   ; byte value sequence 0-255
+    mov [rdi + rcx], dl
+    inc rcx
+    jmp .fill_uncompressible
+.fill_uncomp_done:
+
+    ; Set signature at start to verify data integrity
+    mov rdi, r14
+    mov rsi, msg_zswap_uncomp_sig
+    mov rdx, 19                     ; length of "UNCOMPRESSIBLE_SIG" (18 + null)
+    call memcpy
+
+    ; Create VMA
+    mov rdi, 0x30000000
+    mov rsi, 4096
+    mov rdx, 0x0B
+    call vma_create
+    test rax, rax
+    jz .zswap_fail_vma2
+    mov r15, rax
+
+    ; Map
+    mov rdi, 0x30000000
+    mov rsi, r14
+    mov rdx, 0x07
+    call virt_map
+    test rax, rax
+    jz .zswap_fail_map2
+
+    ; Move to inactive list
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Clear Accessed bit in PTE
+    mov rdi, 0x30000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .zswap_fail_walk2
+    and qword [rax], ~0x20          ; clear Accessed
+
+    ; Trigger clock eviction (which will attempt zswap, fail/bypass to disk swap)
+    call page_replace_clock_evict
+    test rax, rax
+    jz .zswap_fail_evict2
+
+    ; Verify Page is Evicted directly to Swap Disk (zswap bypass)
+    ; 1. PTE Present bit should be 0
+    mov rdi, 0x30000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .zswap_fail_walk_ev2
+    mov rcx, [rax]
+    test rcx, 1                     ; present?
+    jnz .zswap_fail_still_present2
+
+    ; 2. PTE PAGE_SWAPPED (bit 10) should be 1
+    test rcx, 0x400
+    jz .zswap_fail_not_swapped2
+
+    ; 3. PTE PAGE_ZSWAPPED (bit 11) should be 0
+    test rcx, 0x800
+    jnz .zswap_fail_is_zswapped2
+
+    ; 4. Zswap telemetry should be 0 (no pages compressed in zswap)
+    mov rax, [zswap_compressed_pages]
+    test rax, rax
+    jnz .zswap_fail_telemetry2
+
+    mov rsi, msg_zswap_disk_evicted_ok
+    call uart_print_str
+
+    ; Access page to trigger transparent swap-in page fault (from disk)
+    mov rax, [0x30000000]
+
+    ; Verify data integrity
+    mov rsi, 0x30000000
+    mov rbx, 0x4D4F434E55             ; 'UNCOM' in little-endian ("UNCOMPRESSIBLE_SIG")
+    mov rax, [rsi]
+    and rax, 0xFFFFFFFFFF             ; compare 5 bytes
+    cmp rax, rbx
+    jne .zswap_fail_data_corrupt2
+
+    ; Clean up Part 2
+    mov rdi, 0x30000000
+    call virt_translate
+    mov r14, rax
+
+    mov rdi, 0x30000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+
+    mov rdi, r15
+    call vma_destroy
+
+    ; Zswap Test Suite PASSED!
+    mov rsi, msg_zswap_test_passed
+    call uart_print_str
+
     jmp .idle
+
+.zswap_fail_init_telemetry:
+    mov rsi, msg_zswap_fail_init_tel_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_alloc1:
+    mov rsi, msg_zswap_fail_alloc1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_vma1:
+    mov rsi, msg_zswap_fail_vma1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_map1:
+    mov rsi, msg_zswap_fail_map1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_walk1:
+    mov rsi, msg_zswap_fail_walk1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_evict1:
+    mov rsi, msg_zswap_fail_evict1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_walk_ev1:
+    mov rsi, msg_zswap_fail_walk_ev1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_still_present1:
+    mov rsi, msg_zswap_fail_still_pres1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_not_swapped1:
+    mov rsi, msg_zswap_fail_not_swap1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_not_zswapped1:
+    mov rsi, msg_zswap_fail_not_zswap1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_telemetry1:
+    mov rsi, msg_zswap_fail_telemetry1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_data_corrupt1:
+    mov rsi, msg_zswap_fail_data1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_telemetry_res1:
+    mov rsi, msg_zswap_fail_tel_res1_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_alloc2:
+    mov rsi, msg_zswap_fail_alloc2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_vma2:
+    mov rsi, msg_zswap_fail_vma2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_map2:
+    mov rsi, msg_zswap_fail_map2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_walk2:
+    mov rsi, msg_zswap_fail_walk2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_evict2:
+    mov rsi, msg_zswap_fail_evict2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_walk_ev2:
+    mov rsi, msg_zswap_fail_walk_ev2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_still_present2:
+    mov rsi, msg_zswap_fail_still_pres2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_not_swapped2:
+    mov rsi, msg_zswap_fail_not_swap2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_is_zswapped2:
+    mov rsi, msg_zswap_fail_is_zswap2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_telemetry2:
+    mov rsi, msg_zswap_fail_telemetry2_str
+    call uart_print_str
+    jmp .panic
+
+.zswap_fail_data_corrupt2:
+    mov rsi, msg_zswap_fail_data2_str
+    call uart_print_str
+    jmp .panic
 
 .rep_fail_init_count:
     mov rsi, msg_rep_fail_init_str
@@ -1332,3 +1697,38 @@ msg_kswapd_fail_walk_ev_str:     db "Failure: Evicted walk failed.", 0x0D, 0x0A,
 msg_kswapd_fail_still_pres_str:  db "Failure: Page still present after kswapd eviction.", 0x0D, 0x0A, 0
 msg_kswapd_fail_not_swap_str:    db "Failure: Page not marked swapped after kswapd eviction.", 0x0D, 0x0A, 0
 msg_kswapd_fail_data_str:        db "Failure: Swapped-in data corrupt after kswapd reclaim.", 0x0D, 0x0A, 0
+
+msg_zswap_test_start:         db "Running VMM Zswap Compressed Cache Test...", 0x0D, 0x0A, 0
+msg_zswap_evicted_ok:         db "Zswap eviction successful: page compressed and stored in RAM cache.", 0x0D, 0x0A, 0
+msg_zswap_comp_passed:        db "Zswap Compressible Page Test PASSED!", 0x0D, 0x0A, 0
+msg_zswap_disk_evicted_ok:    db "Zswap uncompressible bypass successful: page evicted directly to disk.", 0x0D, 0x0A, 0
+msg_zswap_test_passed:        db "VMM Zswap Compressed Cache Test PASSED!", 0x0D, 0x0A, 0
+
+msg_zswap_comp_sig:           db "COMPRESSIBLE_SIG", 0
+msg_zswap_uncomp_sig:         db "UNCOMPRESSIBLE_SIG", 0
+
+msg_zswap_fail_init_tel_str:  db "Failure: Initial Zswap telemetry is not 0.", 0x0D, 0x0A, 0
+msg_zswap_fail_alloc1_str:     db "Failure: Could not allocate physical page for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_vma1_str:       db "Failure: Could not create VMA for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_map1_str:       db "Failure: Could not map page for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_walk1_str:      db "Failure: Could not walk page table for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_evict1_str:     db "Failure: clock eviction failed for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_walk_ev1_str:   db "Failure: walk failed after eviction for Zswap Part 1.", 0x0D, 0x0A, 0
+msg_zswap_fail_still_pres1_str:db "Failure: Zswap page still present after clock eviction.", 0x0D, 0x0A, 0
+msg_zswap_fail_not_swap1_str:  db "Failure: Zswap page does not have PAGE_SWAPPED set.", 0x0D, 0x0A, 0
+msg_zswap_fail_not_zswap1_str: db "Failure: Zswap page does not have PAGE_ZSWAPPED set.", 0x0D, 0x0A, 0
+msg_zswap_fail_telemetry1_str: db "Failure: Zswap compressed pages telemetry is not 1 after eviction.", 0x0D, 0x0A, 0
+msg_zswap_fail_data1_str:      db "Failure: Decompressed data is corrupt or signature mismatch.", 0x0D, 0x0A, 0
+msg_zswap_fail_tel_res1_str:   db "Failure: Zswap compressed pages telemetry did not return to 0.", 0x0D, 0x0A, 0
+
+msg_zswap_fail_alloc2_str:     db "Failure: Could not allocate physical page for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_vma2_str:       db "Failure: Could not create VMA for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_map2_str:       db "Failure: Could not map page for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_walk2_str:      db "Failure: Could not walk page table for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_evict2_str:     db "Failure: clock eviction failed for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_walk_ev2_str:   db "Failure: walk failed after eviction for Zswap Part 2.", 0x0D, 0x0A, 0
+msg_zswap_fail_still_pres2_str:db "Failure: Page still present after disk bypass eviction.", 0x0D, 0x0A, 0
+msg_zswap_fail_not_swap2_str:  db "Failure: Page does not have PAGE_SWAPPED set after disk bypass eviction.", 0x0D, 0x0A, 0
+msg_zswap_fail_is_zswap2_str:  db "Failure: Page has PAGE_ZSWAPPED set but should have bypassed Zswap.", 0x0D, 0x0A, 0
+msg_zswap_fail_telemetry2_str: db "Failure: Zswap telemetry non-zero for uncompressible page.", 0x0D, 0x0A, 0
+msg_zswap_fail_data2_str:      db "Failure: Swapped-in data from disk bypass is corrupt or mismatch.", 0x0D, 0x0A, 0
