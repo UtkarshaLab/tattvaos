@@ -2914,7 +2914,195 @@ test_ctor:
     ; memcpy Test PASSED!
     mov rsi, msg_memcpy_test_passed
     call uart_print_str
+    jmp .run_memset_test
+
+.run_memset_test:
+    mov rsi, msg_memset_test_start
+    call uart_print_str
+
+    push r12
+    push r13
+
+    ; Allocate destination buffer (128 bytes)
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memset_fail_alloc
+    mov r12, rax                    ; R12 = Dst buffer
+
+    ; Run cases with fill value 0xAA (R13 = 0xAA)
+    mov r13, 0xAA
+
+    mov rcx, 0
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 1
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 7
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 15
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 16
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 23
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 31
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 32
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 35
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 64
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 100
+    mov rsi, r13
+    call .run_one_memset_case
+
+    ; Run cases with fill value 0xFF (R13 = 0xFF)
+    mov r13, 0xFF
+
+    mov rcx, 7
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 32
+    mov rsi, r13
+    call .run_one_memset_case
+
+    mov rcx, 35
+    mov rsi, r13
+    call .run_one_memset_case
+
+    ; Free destination buffer
+    mov rdi, r12
+    call heap_free
+
+    pop r13
+    pop r12
+
+    ; memset Test PASSED!
+    mov rsi, msg_memset_test_passed
+    call uart_print_str
     jmp .idle
+
+.run_one_memset_case:
+    push rcx
+    push rsi
+
+    ; 1. Reset destination buffer with sentinel values (0..127)
+    mov rdi, r12
+    xor rdx, rdx
+.sentinel_loop:
+    mov [rdi + rdx], dl
+    inc rdx
+    cmp rdx, 128
+    jb .sentinel_loop
+
+    ; 2. Call memset(r12, rsi, rcx)
+    mov rdi, r12
+    ; RSI is already the fill byte
+    mov rdx, rcx                    ; RDX = size N
+    call memset                     ; RAX = dest pointer
+
+    ; 3. Verify return value
+    cmp rax, r12
+    jne .memset_fail_ret_pop
+
+    ; Restore parameters for verification
+    mov rcx, [rsp + 8]              ; RCX = size N
+    mov rsi, [rsp]                  ; RSI = fill byte
+
+    ; 4. Verify first N bytes match the fill value
+    test rcx, rcx
+    jz .check_tail_memset           ; if N == 0, skip checking payload
+    xor rdx, rdx                    ; RDX = index i
+.payload_loop_memset:
+    mov al, [r12 + rdx]
+    cmp al, sil
+    jne .memset_fail_data_pop
+    inc rdx
+    cmp rdx, rcx
+    jb .payload_loop_memset
+
+.check_tail_memset:
+    mov rcx, [rsp + 8]              ; RCX = size N
+    ; 5. Verify remaining 128-N bytes are original sentinels (i)
+    mov rdx, rcx                    ; RDX = index i = N
+.tail_loop_memset:
+    cmp rdx, 128
+    jae .done_case_memset
+    mov al, [r12 + rdx]
+    cmp al, dl                      ; Dst[i] must be i
+    jne .memset_fail_extra_pop
+    inc rdx
+    jmp .tail_loop_memset
+
+.done_case_memset:
+    pop rsi
+    pop rcx
+    ret
+
+.memset_fail_ret_pop:
+    pop rsi
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memset_fail_ret
+
+.memset_fail_data_pop:
+    pop rsi
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memset_fail_data
+
+.memset_fail_extra_pop:
+    pop rsi
+    pop rcx
+    pop r13
+    pop r12
+    jmp .memset_fail_extra
+
+.memset_fail_alloc:
+    pop r13
+    pop r12
+    mov rsi, msg_memset_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.memset_fail_ret:
+    mov rsi, msg_memset_fail_ret_str
+    call uart_print_str
+    jmp .panic
+
+.memset_fail_data:
+    mov rsi, msg_memset_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.memset_fail_extra:
+    mov rsi, msg_memset_fail_extra_str
+    call uart_print_str
+    jmp .panic
 
 .run_one_memcpy_case:
     push rcx
@@ -4101,6 +4289,13 @@ msg_memcpy_fail_alloc_str:           db "Failure: Could not allocate memory for 
 msg_memcpy_fail_ret_str:             db "Failure: memcpy did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memcpy_fail_data_str:            db "Failure: memcpy did not copy the data payload correctly.", 0x0D, 0x0A, 0
 msg_memcpy_fail_extra_str:           db "Failure: memcpy corrupted memory past the requested copy size.", 0x0D, 0x0A, 0
+
+msg_memset_test_start:               db "Running VMM AVX2-Optimized memset Test...", 0x0D, 0x0A, 0
+msg_memset_test_passed:              db "VMM AVX2-Optimized memset Test PASSED!", 0x0D, 0x0A, 0
+msg_memset_fail_alloc_str:           db "Failure: Could not allocate memory for memset test buffer.", 0x0D, 0x0A, 0
+msg_memset_fail_ret_str:             db "Failure: memset did not return the destination pointer.", 0x0D, 0x0A, 0
+msg_memset_fail_data_str:            db "Failure: memset did not fill the data payload correctly.", 0x0D, 0x0A, 0
+msg_memset_fail_extra_str:           db "Failure: memset corrupted memory past the requested fill size.", 0x0D, 0x0A, 0
 
 
 
