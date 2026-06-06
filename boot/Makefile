@@ -32,8 +32,11 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/heap/free_list.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/heap.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/defrag.asm \
-
-
+                          $(KERNEL_DIR)/../lib/mem/slab/slab.asm \
+                          $(KERNEL_DIR)/../lib/mem/slab/slab_create.asm \
+                          $(KERNEL_DIR)/../lib/mem/slab/slab_alloc.asm \
+                          $(KERNEL_DIR)/../lib/mem/slab/slab_free.asm \
+                          $(KERNEL_DIR)/../lib/mem/slab/slab_reap.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/virt.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pgtable_walk.asm \
