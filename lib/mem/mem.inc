@@ -30,4 +30,26 @@ struc phys_state_t
     .dirty_pages    resq 1      ; Number of dirty pages
 endstruc
 
+; Slab allocator cache descriptor structure
+struc kmem_cache_t
+    .name           resq 1      ; Pointer to name string (ASCIIZ)
+    .obj_size       resq 1      ; Size of each object in bytes
+    .align_size     resq 1      ; Alignment boundary (e.g. 8 or 16)
+    .slabs_full     resq 1      ; Head pointer to full slabs list
+    .slabs_part     resq 1      ; Head pointer to partial slabs list
+    .slabs_free     resq 1      ; Head pointer to empty slabs list
+    .lock           resq 1      ; Spinlock for multiprocessor safety
+endstruc
+
+; Slab management structure
+struc slab_t
+    .magic          resq 1      ; Verification magic (e.g. 0x51AB51AB)
+    .next           resq 1      ; Next slab in current list
+    .prev           resq 1      ; Prev slab in current list
+    .mem_start      resq 1      ; Start of object payload area in slab
+    .free_head      resq 1      ; Head of free objects singly-linked list
+    .obj_count      resq 1      ; Total capacity of objects in slab
+    .used_count     resq 1      ; Count of allocated objects in slab
+endstruc
+
 %endif ; LIB_MEM_MEM_INC
