@@ -38,6 +38,12 @@ extern kswapd_high_watermark
 extern kswapd_check_and_reclaim
 extern zswap_compressed_pages
 
+extern mtrr_supported
+extern mtrr_get_vcnt
+extern mtrr_set_variable
+extern mtrr_get_variable
+extern mtrr_disable_variable
+
 kernel_main:
     ; 1. Print kernel execution ready state
     mov rsi, msg_kernel_ready
@@ -1058,7 +1064,109 @@ kernel_main:
     mov rsi, msg_zswap_test_passed
     call uart_print_str
 
+    ; -------------------------------------------------------------
+    ; 10. Run VMM MTRR Cache Programming Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_mtrr_test_start
+    call uart_print_str
+
+    ; Step A: Verify MTRRs are supported on this processor
+    call mtrr_supported
+    test rax, rax
+    jz .mtrr_skip_test              ; if not supported, skip gracefully
+
+    ; Step B: Print variable count
+    call mtrr_get_vcnt
+    mov rsi, msg_mtrr_vcnt_str
+    call uart_print_str
+    call uart_print_hex64
+    mov rsi, msg_crlf
+    call uart_print_str
+
+    ; Step C: Set Variable MTRR slot 0 to Write-Combining (1)
+    ; Base: 0xE0000000, Size: 16MB (0x1000000)
+    mov rdi, 0                      ; slot 0
+    mov rsi, 0xE0000000             ; base physical address
+    mov rdx, 0x1000000              ; size (16MB)
+    mov rcx, 1                      ; type: Write-Combining (WC)
+    call mtrr_set_variable
+    test rax, rax
+    jz .mtrr_fail_set
+
+    ; Step D: Retrieve and verify variable range
+    mov rdi, 0                      ; slot 0
+    call mtrr_get_variable          ; RAX=1, RSI=base, RDX=size, RCX=type
+    test rax, rax
+    jz .mtrr_fail_get_active
+
+    ; Verify base address
+    cmp rsi, 0xE0000000
+    jne .mtrr_fail_base
+
+    ; Verify size
+    cmp rdx, 0x1000000
+    jne .mtrr_fail_size
+
+    ; Verify memory type
+    cmp rcx, 1
+    jne .mtrr_fail_type
+
+    ; Step E: Disable variable MTRR slot 0 to clean up
+    mov rdi, 0
+    call mtrr_disable_variable
+    test rax, rax
+    jz .mtrr_fail_disable
+
+    ; Step F: Verify slot is indeed disabled now
+    mov rdi, 0
+    call mtrr_get_variable
+    test rax, rax
+    jnz .mtrr_fail_still_active
+
+    ; MTRR Programming Test PASSED!
+    mov rsi, msg_mtrr_test_passed
+    call uart_print_str
     jmp .idle
+
+.mtrr_skip_test:
+    mov rsi, msg_mtrr_skipped_str
+    call uart_print_str
+    jmp .idle
+
+.mtrr_fail_set:
+    mov rsi, msg_mtrr_fail_set_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_get_active:
+    mov rsi, msg_mtrr_fail_get_act_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_base:
+    mov rsi, msg_mtrr_fail_base_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_size:
+    mov rsi, msg_mtrr_fail_size_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_type:
+    mov rsi, msg_mtrr_fail_type_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_disable:
+    mov rsi, msg_mtrr_fail_disable_str
+    call uart_print_str
+    jmp .panic
+
+.mtrr_fail_still_active:
+    mov rsi, msg_mtrr_fail_still_act_str
+    call uart_print_str
+    jmp .panic
 
 .zswap_fail_init_telemetry:
     mov rsi, msg_zswap_fail_init_tel_str
@@ -1732,3 +1840,16 @@ msg_zswap_fail_not_swap2_str:  db "Failure: Page does not have PAGE_SWAPPED set 
 msg_zswap_fail_is_zswap2_str:  db "Failure: Page has PAGE_ZSWAPPED set but should have bypassed Zswap.", 0x0D, 0x0A, 0
 msg_zswap_fail_telemetry2_str: db "Failure: Zswap telemetry non-zero for uncompressible page.", 0x0D, 0x0A, 0
 msg_zswap_fail_data2_str:      db "Failure: Swapped-in data from disk bypass is corrupt or mismatch.", 0x0D, 0x0A, 0
+
+msg_mtrr_test_start:         db "Running VMM MTRR Cache Programming Test...", 0x0D, 0x0A, 0
+msg_mtrr_vcnt_str:            db "MTRR supported. Count of variable registers: ", 0
+msg_mtrr_test_passed:         db "VMM MTRR Cache Programming Test PASSED!", 0x0D, 0x0A, 0
+msg_mtrr_skipped_str:         db "MTRR Cache Programming Test skipped: MTRRs not supported.", 0x0D, 0x0A, 0
+
+msg_mtrr_fail_set_str:        db "Failure: mtrr_set_variable returned 0.", 0x0D, 0x0A, 0
+msg_mtrr_fail_get_act_str:    db "Failure: mtrr_get_variable returned 0 for active slot.", 0x0D, 0x0A, 0
+msg_mtrr_fail_base_str:       db "Failure: mtrr_get_variable returned incorrect base.", 0x0D, 0x0A, 0
+msg_mtrr_fail_size_str:       db "Failure: mtrr_get_variable returned incorrect size.", 0x0D, 0x0A, 0
+msg_mtrr_fail_type_str:       db "Failure: mtrr_get_variable returned incorrect type.", 0x0D, 0x0A, 0
+msg_mtrr_fail_disable_str:    db "Failure: mtrr_disable_variable returned 0.", 0x0D, 0x0A, 0
+msg_mtrr_fail_still_act_str:  db "Failure: mtrr_get_variable indicates slot is active after disable.", 0x0D, 0x0A, 0
