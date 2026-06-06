@@ -23,6 +23,7 @@ PAGE_DIRTY      equ (1 << 6)
 PAGE_HUGE       equ (1 << 7)        ; Huge page (PS bit in PDPT/PD)
 PAGE_GLOBAL     equ (1 << 8)
 PAGE_SWAPPED    equ (1 << 10)       ; Page is swapped out to mock swap device
+PAGE_ZSWAPPED   equ (1 << 11)       ; Page is compressed in Zswap cache
 PAGE_NX         equ (1 << 63)       ; No-execute
 
 section .text
