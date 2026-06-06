@@ -75,8 +75,10 @@ struc pool_t
     .obj_size   resq 1          ; Aligned size of each object slot
     .capacity   resq 1          ; Max objects in this pool
     .count      resq 1          ; Number of active allocations
-    .free_head  resq 1          ; Pointer to the first free slot
     .memory     resq 1          ; Pointer to start of payload memory region
+    alignb 16
+    .free_head  resq 1          ; Pointer to the first free slot (16-byte aligned)
+    .free_tag   resq 1          ; ABA-prevention tag counter (16-byte aligned)
 endstruc
 
 %endif ; LIB_MEM_MEM_INC
