@@ -30,6 +30,9 @@ extern virt_unmap
 extern phys_free_page
 extern page_replace_clock_evict
 extern phys_state
+extern swap_register_device
+extern ata_swap_dev
+extern nvme_swap_dev
 
 kernel_main:
     ; 1. Print kernel execution ready state
@@ -500,6 +503,203 @@ kernel_main:
     ; Clock Eviction Test PASSED!
     mov rsi, msg_clock_test_passed
     call uart_print_str
+
+    ; -------------------------------------------------------------
+    ; ATA Swap Device Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_ata_test_start
+    call uart_print_str
+
+    ; Register ATA device
+    lea rdi, [ata_swap_dev]
+    call swap_register_device
+
+    ; Allocate a physical page for user mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .ata_fail_alloc
+    mov r14, rax
+
+    ; Initialize page content
+    mov rdi, r14
+    mov rsi, msg_ata_test_data
+    mov rdx, 25
+    call memcpy
+
+    ; Create VMA
+    mov rdi, 0x20000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .ata_fail_vma
+    mov r15, rax
+
+    ; Map the page
+    mov rdi, 0x20000000
+    mov rsi, r14
+    mov rdx, 0x07                   ; PRESENT | WRITABLE | USER
+    call virt_map
+    test rax, rax
+    jz .ata_fail_map
+
+    ; Move to inactive list
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Verify it is in inactive list
+    call page_list_get_inactive_count
+    cmp rax, 1
+    jne .ata_fail_inactive
+
+    ; Clear Accessed bit in PTE
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .ata_fail_walk
+    and qword [rax], ~0x20          ; clear Accessed (bit 5)
+
+    ; Trigger Clock Eviction (now writing to ATA)
+    call page_replace_clock_evict
+    test rax, rax
+    jz .ata_fail_evict
+
+    ; Verify page is evicted
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .ata_fail_walk_evicted
+    mov rcx, [rax]
+    test rcx, 1                     ; present?
+    jnz .ata_fail_still_present
+    test rcx, 0x400                 ; swapped?
+    jz .ata_fail_not_swapped
+
+    ; Access page to trigger swap-in page fault
+    mov rax, [0x20000000]
+
+    ; Verify data
+    mov rax, [0x20000000]
+    mov rbx, 0x4154415F4B434F4D     ; 'MOCK_ATA' in little-endian ("MOCK_ATA_SWAP_DATA")
+    cmp rax, rbx
+    jne .ata_fail_data_corrupt
+
+    ; Cleanup
+    mov rdi, 0x20000000
+    call virt_translate
+    mov r14, rax
+
+    mov rdi, 0x20000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+    mov rdi, r15
+    call vma_destroy
+
+    mov rsi, msg_ata_test_passed
+    call uart_print_str
+
+    ; -------------------------------------------------------------
+    ; NVMe Swap Device Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_nvme_test_start
+    call uart_print_str
+
+    ; Register NVMe device
+    lea rdi, [nvme_swap_dev]
+    call swap_register_device
+
+    ; Allocate a physical page for user mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .nvme_fail_alloc
+    mov r14, rax
+
+    ; Initialize page content
+    mov rdi, r14
+    mov rsi, msg_nvme_test_data
+    mov rdx, 25
+    call memcpy
+
+    ; Create VMA
+    mov rdi, 0x20000000
+    mov rsi, 4096
+    mov rdx, 0x0B
+    call vma_create
+    test rax, rax
+    jz .nvme_fail_vma
+    mov r15, rax
+
+    ; Map the page
+    mov rdi, 0x20000000
+    mov rsi, r14
+    mov rdx, 0x07
+    call virt_map
+    test rax, rax
+    jz .nvme_fail_map
+
+    ; Move to inactive list
+    mov rdi, r14
+    call page_list_move_to_inactive
+
+    ; Verify it is in inactive list
+    call page_list_get_inactive_count
+    cmp rax, 1
+    jne .nvme_fail_inactive
+
+    ; Clear Accessed bit
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .nvme_fail_walk
+    and qword [rax], ~0x20
+
+    ; Trigger Clock Eviction (now writing to NVMe)
+    call page_replace_clock_evict
+    test rax, rax
+    jz .nvme_fail_evict
+
+    ; Verify page is evicted
+    mov rdi, 0x20000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .nvme_fail_walk_evicted
+    mov rcx, [rax]
+    test rcx, 1                     ; present?
+    jnz .nvme_fail_still_present
+    test rcx, 0x400                 ; swapped?
+    jz .nvme_fail_not_swapped
+
+    ; Access page to trigger swap-in page fault
+    mov rax, [0x20000000]
+
+    ; Verify data
+    mov rax, [0x20000000]
+    mov rbx, 0x4D564E5F4B434F4D     ; 'MOCK_NVM' in little-endian ("MOCK_NVME_SWAP_DATA")
+    cmp rax, rbx
+    jne .nvme_fail_data_corrupt
+
+    ; Cleanup
+    mov rdi, 0x20000000
+    call virt_translate
+    mov r14, rax
+
+    mov rdi, 0x20000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+    mov rdi, r15
+    call vma_destroy
+
+    mov rsi, msg_nvme_test_passed
+    call uart_print_str
+
     jmp .idle
 
 .rep_fail_init_count:
@@ -727,6 +927,106 @@ kernel_main:
     call uart_print_str
     jmp .panic
 
+.ata_fail_alloc:
+    mov rsi, msg_ata_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_vma:
+    mov rsi, msg_ata_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_map:
+    mov rsi, msg_ata_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_inactive:
+    mov rsi, msg_ata_fail_inactive_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_walk:
+    mov rsi, msg_ata_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_evict:
+    mov rsi, msg_ata_fail_evict_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_walk_evicted:
+    mov rsi, msg_ata_fail_walk_ev_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_still_present:
+    mov rsi, msg_ata_fail_still_pres_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_not_swapped:
+    mov rsi, msg_ata_fail_not_swap_str
+    call uart_print_str
+    jmp .panic
+
+.ata_fail_data_corrupt:
+    mov rsi, msg_ata_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_alloc:
+    mov rsi, msg_nvme_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_vma:
+    mov rsi, msg_nvme_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_map:
+    mov rsi, msg_nvme_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_inactive:
+    mov rsi, msg_nvme_fail_inactive_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_walk:
+    mov rsi, msg_nvme_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_evict:
+    mov rsi, msg_nvme_fail_evict_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_walk_evicted:
+    mov rsi, msg_nvme_fail_walk_ev_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_still_present:
+    mov rsi, msg_nvme_fail_still_pres_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_not_swapped:
+    mov rsi, msg_nvme_fail_not_swap_str
+    call uart_print_str
+    jmp .panic
+
+.nvme_fail_data_corrupt:
+    mov rsi, msg_nvme_fail_data_str
+    call uart_print_str
+    jmp .panic
+
 .panic:
     mov rsi, msg_test_failed
     call uart_print_str
@@ -830,3 +1130,33 @@ msg_clock_fail_data_str:       db "Failure: Swapped-in data is corrupt or mismat
 msg_clock_fail_stats_res_str:  db "Failure: Telemetry swap pages count not 0 after swap-in.", 0x0D, 0x0A, 0
 msg_clock_fail_act_res_str:    db "Failure: Active list count not 1 after swap-in.", 0x0D, 0x0A, 0
 msg_clock_fail_inact_res_str:  db "Failure: Inactive list count not 0 after swap-in.", 0x0D, 0x0A, 0
+
+msg_ata_test_start:            db "Running VMM ATA Swap Partition Test...", 0x0D, 0x0A, 0
+msg_ata_test_passed:           db "VMM ATA Swap Partition Test PASSED!", 0x0D, 0x0A, 0
+msg_ata_test_data:             db "MOCK_ATA_SWAP_DATA", 0
+
+msg_ata_fail_alloc_str:        db "Failure: Could not allocate page for ATA swap test.", 0x0D, 0x0A, 0
+msg_ata_fail_vma_str:          db "Failure: Could not create VMA for ATA swap test.", 0x0D, 0x0A, 0
+msg_ata_fail_map_str:          db "Failure: Could not map page for ATA swap test.", 0x0D, 0x0A, 0
+msg_ata_fail_inactive_str:     db "Failure: Page not inactive before ATA eviction.", 0x0D, 0x0A, 0
+msg_ata_fail_walk_str:         db "Failure: Could not walk page table for ATA test.", 0x0D, 0x0A, 0
+msg_ata_fail_evict_str:        db "Failure: ATA eviction command returned error.", 0x0D, 0x0A, 0
+msg_ata_fail_walk_ev_str:      db "Failure: Walk failed for ATA evicted address.", 0x0D, 0x0A, 0
+msg_ata_fail_still_pres_str:   db "Failure: Page still present after ATA eviction.", 0x0D, 0x0A, 0
+msg_ata_fail_not_swap_str:     db "Failure: Page not marked swapped in ATA PTE.", 0x0D, 0x0A, 0
+msg_ata_fail_data_str:         db "Failure: Swapped-in data corrupt on ATA partition.", 0x0D, 0x0A, 0
+
+msg_nvme_test_start:           db "Running VMM Direct NVMe Swap Queue Test...", 0x0D, 0x0A, 0
+msg_nvme_test_passed:          db "VMM Direct NVMe Swap Queue Test PASSED!", 0x0D, 0x0A, 0
+msg_nvme_test_data:            db "MOCK_NVME_SWAP_DATA", 0
+
+msg_nvme_fail_alloc_str:       db "Failure: Could not allocate page for NVMe swap test.", 0x0D, 0x0A, 0
+msg_nvme_fail_vma_str:         db "Failure: Could not create VMA for NVMe swap test.", 0x0D, 0x0A, 0
+msg_nvme_fail_map_str:         db "Failure: Could not map page for NVMe swap test.", 0x0D, 0x0A, 0
+msg_nvme_fail_inactive_str:    db "Failure: Page not inactive before NVMe eviction.", 0x0D, 0x0A, 0
+msg_nvme_fail_walk_str:        db "Failure: Could not walk page table for NVMe test.", 0x0D, 0x0A, 0
+msg_nvme_fail_evict_str:       db "Failure: NVMe eviction command returned error.", 0x0D, 0x0A, 0
+msg_nvme_fail_walk_ev_str:     db "Failure: Walk failed for NVMe evicted address.", 0x0D, 0x0A, 0
+msg_nvme_fail_still_pres_str:  db "Failure: Page still present after NVMe eviction.", 0x0D, 0x0A, 0
+msg_nvme_fail_not_swap_str:    db "Failure: Page not marked swapped in NVMe PTE.", 0x0D, 0x0A, 0
+msg_nvme_fail_data_str:        db "Failure: Swapped-in data corrupt on NVMe queue.", 0x0D, 0x0A, 0
