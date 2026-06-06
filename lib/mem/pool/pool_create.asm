@@ -55,15 +55,17 @@ pool_create:
     and rax, -8
     mov r12, rax                    ; R12 = aligned size
 
-    ; Calculate memory payload size: aligned_size * capacity
+    ; Calculate memory payload size: aligned_size * capacity + 16 (for block_hdr_t)
     mov rax, r12
     mul r13                         ; RDX:RAX = R12 * R13
     test rdx, rdx
     jnz .fail                       ; overflow check
 
-    mov r15, rax                    ; R15 = total allocation size
+    add rax, 16
+    jc .fail                        ; overflow check
+    mov r15, rax                    ; R15 = total allocation size including block header
 
-    ; 1. Allocate pool_t descriptor block (pool_t_size = 40 bytes)
+    ; 1. Allocate pool_t descriptor block
     mov rdi, pool_t_size
     call heap_alloc                 ; RAX = pool descriptor pointer
     test rax, rax
@@ -76,16 +78,23 @@ pool_create:
     test rax, rax
     jz .free_desc_and_fail
 
+    ; Initialize the block header for this first block
+    mov qword [rax], 0              ; next_block = NULL
+    mov [rax + 8], r13              ; capacity = initial capacity
+
     ; Store configuration
     mov [r14 + pool_t.obj_size], r12
     mov [r14 + pool_t.capacity], r13
     mov [r14 + pool_t.count], qword 0
-    mov [r14 + pool_t.memory], rax
-    mov [r14 + pool_t.free_head], rax
+    
+    mov rbx, rax
+    add rbx, 16                     ; RBX = pointer to the first slot
+    mov [r14 + pool_t.memory], rbx
+    mov [r14 + pool_t.free_head], rbx
     mov qword [r14 + pool_t.free_tag], 0
 
     ; 3. Build the intrusive stack-based free list
-    mov rdx, rax                    ; RDX = current slot pointer
+    mov rdx, rbx                    ; RDX = current slot pointer (starts at memory + 16)
     xor rcx, rcx                    ; RCX = loop counter (i)
 
 .link_loop:
