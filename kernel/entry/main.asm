@@ -1261,42 +1261,115 @@ kernel_main:
     mov rsi, msg_heap_test_start
     call uart_print_str
 
-    ; Step A: Verify that heap_active_allocator is 1 (free-list)
+    ; Step A: Verify that heap_active_allocator is 1 (free-list active)
     mov al, [heap_active_allocator]
     cmp al, 1
     jne .heap_fail_active
 
-    ; Step B: Allocate a memory block of 64 bytes
+    ; Step B: Allocate three consecutive blocks of 64 bytes: A, B, C
     mov rdi, 64
     call heap_alloc
     test rax, rax
     jz .heap_fail_alloc
-    mov r12, rax                    ; R12 = pointer 1
+    mov r12, rax                    ; R12 = pointer A
 
-    ; Verify 16-byte alignment of R12
     test rax, 15
     jnz .heap_fail_align
 
-    ; Step C: Allocate a second block of 128 bytes
-    mov rdi, 128
+    mov rdi, 64
     call heap_alloc
     test rax, rax
     jz .heap_fail_alloc2
-    mov r13, rax                    ; R13 = pointer 2
+    mov r13, rax                    ; R13 = pointer B
 
-    ; Verify 16-byte alignment of R13
     test rax, 15
     jnz .heap_fail_align2
 
-    ; Verify blocks don't overlap
-    cmp r12, r13
-    je .heap_fail_overlap
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_alloc3
+    mov r14, rax                    ; R14 = pointer C
 
-    ; Step D: Free the blocks
-    mov rdi, r12
+    test rax, 15
+    jnz .heap_fail_align3
+
+    ; Step C: Assert spacing between consecutive blocks
+    ; Header size heap_block_t_size is 32 bytes. Payload is 64 bytes.
+    ; Thus, B - A must be exactly 96 bytes (64 + 32).
+    ; Likewise, C - B must be exactly 96 bytes.
+    mov rax, r13
+    sub rax, r12                    ; RAX = B - A
+    cmp rax, 96
+    jne .heap_fail_spacing
+
+    mov rax, r14
+    sub rax, r13                    ; RAX = C - B
+    cmp rax, 96
+    jne .heap_fail_spacing
+
+    ; Step D: Free the middle block B to create a hole in the free list
+    mov rdi, r13
     call heap_free
 
-    mov rdi, r13
+    ; Step E: Allocate a 16-byte block (below the splitting threshold of B)
+    ; B size is 64 bytes. 16-byte aligned payload = 16.
+    ; Splitting threshold minimum size = aligned_size (16) + header_size (32) + 16 = 64 bytes.
+    ; Since B size (64) >= 64, it MUST split block B!
+    ; Allocating 16 bytes from B (64 bytes) splits it into:
+    ; - Allocated block: 16 bytes (pointer = B)
+    ; - Remaining free block: 64 - 16 - 32 = 16 bytes (header at B + 16, pointer = B + 48)
+    mov rdi, 16
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_alloc_split
+    mov r15, rax                    ; R15 = pointer to split block
+
+    ; Verify that R15 (new allocation) returned exactly R13 (pointer B)
+    cmp r15, r13
+    jne .heap_fail_split_ptr
+
+    ; Step F: Allocate another 16 bytes (should consume the split free block at B + 48)
+    mov rdi, 16
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_alloc_split2
+    mov rbx, rax                    ; RBX = pointer to split remainder
+
+    ; Verify the address of split remainder is B + 48 (R13 + 48)
+    mov rax, r13
+    add rax, 48
+    cmp rbx, rax
+    jne .heap_fail_split_rem
+
+    ; Step G: Free all allocations to check coalescing
+    mov rdi, r12                    ; free A
+    call heap_free
+
+    mov rdi, r15                    ; free split part 1 (B start)
+    call heap_free
+
+    mov rdi, rbx                    ; free split part 2 (B remainder)
+    call heap_free
+
+    mov rdi, r14                    ; free C
+    call heap_free
+
+    ; Step H: Allocate 256 bytes (requires merging A, B, and C)
+    ; Contiguous free space from A start to C end:
+    ; A payload (64) + B header (32) + B payload (64) + C header (32) + C payload (64) = 256 bytes.
+    mov rdi, 256
+    call heap_alloc
+    test rax, rax
+    jz .heap_fail_coalesce
+    mov rbx, rax
+
+    ; Verify it starts exactly at pointer A (R12)
+    cmp rbx, r12
+    jne .heap_fail_coalesce_ptr
+
+    ; Free the coalesced block
+    mov rdi, rbx
     call heap_free
 
     ; Heap Allocator Test PASSED!
@@ -1329,10 +1402,51 @@ kernel_main:
     call uart_print_str
     jmp .panic
 
-.heap_fail_overlap:
-    mov rsi, msg_heap_fail_overlap_str
+.heap_fail_alloc3:
+    mov rsi, msg_heap_fail_alloc3_str
     call uart_print_str
     jmp .panic
+
+.heap_fail_align3:
+    mov rsi, msg_heap_fail_align3_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_spacing:
+    mov rsi, msg_heap_fail_spacing_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_alloc_split:
+    mov rsi, msg_heap_fail_alloc_split_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_split_ptr:
+    mov rsi, msg_heap_fail_split_ptr_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_alloc_split2:
+    mov rsi, msg_heap_fail_alloc_split2_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_split_rem:
+    mov rsi, msg_heap_fail_split_rem_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_coalesce:
+    mov rsi, msg_heap_fail_coalesce_str
+    call uart_print_str
+    jmp .panic
+
+.heap_fail_coalesce_ptr:
+    mov rsi, msg_heap_fail_coalesce_ptr_str
+    call uart_print_str
+    jmp .panic
+
 
 .pat_skip_test:
     mov rsi, msg_pat_skipped_str
@@ -2138,8 +2252,17 @@ msg_heap_test_passed:       db "General-Purpose Heap Allocator Test PASSED!", 0x
 msg_heap_fail_active_str:   db "Failure: Heap allocator was not transitioned to free-list mode.", 0x0D, 0x0A, 0
 msg_heap_fail_alloc_str:    db "Failure: First heap allocation (64 bytes) returned null.", 0x0D, 0x0A, 0
 msg_heap_fail_align_str:    db "Failure: First heap allocation pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
-msg_heap_fail_alloc2_str:   db "Failure: Second heap allocation (128 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc2_str:   db "Failure: Second heap allocation (64 bytes) returned null.", 0x0D, 0x0A, 0
 msg_heap_fail_align2_str:   db "Failure: Second heap allocation pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
-msg_heap_fail_overlap_str:  db "Failure: Heap allocation overlap detected.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc3_str:   db "Failure: Third heap allocation (64 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_align3_str:   db "Failure: Third heap allocation pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_heap_fail_spacing_str:  db "Failure: Heap block spacing does not match block_size + header_size.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc_split_str: db "Failure: Split heap allocation (16 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_split_ptr_str: db "Failure: Split allocation did not reuse original block B start address.", 0x0D, 0x0A, 0
+msg_heap_fail_alloc_split2_str: db "Failure: Second split allocation (16 bytes) returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_split_rem_str: db "Failure: Second split did not return expected remainder address (B+48).", 0x0D, 0x0A, 0
+msg_heap_fail_coalesce_str:  db "Failure: Allocation (256 bytes) from coalesced block returned null.", 0x0D, 0x0A, 0
+msg_heap_fail_coalesce_ptr_str: db "Failure: Coalesced allocation did not return block A start address.", 0x0D, 0x0A, 0
+
 
 
