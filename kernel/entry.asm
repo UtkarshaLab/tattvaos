@@ -42,6 +42,8 @@ kernel_entry:
 %include "lib/mem/mem.asm"
 %include "lib/hw/ucpu/mtrr.asm"
 %include "lib/hw/ucpu/pat.asm"
+%include "drivers/gpu/fb.asm"
+
 
 align 8
 kernel_end:
