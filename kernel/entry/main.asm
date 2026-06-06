@@ -57,6 +57,7 @@ extern kmem_slab_link
 extern kmem_slab_unlink
 extern kmem_cache_create
 extern kmem_cache_free
+extern kmem_cache_reap
 
 
 
@@ -1815,7 +1816,7 @@ kernel_main:
 
     mov rsi, msg_slab_ctor_test_passed
     call uart_print_str
-    jmp .idle
+    jmp .run_slab_reap_test
 
 test_ctor:
     mov qword [rdi + 8], 0x123456789ABCDEF0
@@ -1828,6 +1829,70 @@ test_ctor:
 
 .slab_fail_ctor_chain:
     mov rsi, msg_slab_fail_ctor_chain_str
+    call uart_print_str
+    jmp .panic
+
+.run_slab_reap_test:
+    mov rsi, msg_slab_reap_test_start
+    call uart_print_str
+
+    ; Step A: Grow an empty slab in kmem_cache_vma
+    mov rdi, kmem_cache_vma
+    call kmem_slab_grow
+    test rax, rax
+    jz .slab_grow_fail
+    mov r12, rax                    ; R12 = pointer to grown slab
+
+    ; Verify it is in slabs_free list of kmem_cache_vma
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_free]
+    cmp rax, r12
+    jne .slab_reap_fail_setup
+
+    ; Step B: Artificially configure watermarks to force kswapd trigger
+    mov rax, [phys_state + phys_state_t.free_pages]
+    mov r13, rax                    ; R13 = initial free pages count
+    
+    mov rbx, rax
+    inc rbx                         ; RBX = current_free + 1
+    mov [kswapd_low_watermark], rbx
+    mov [kswapd_high_watermark], rbx
+
+    ; Step C: Trigger kswapd
+    call kswapd_check_and_reclaim
+
+    ; Step D: Verify that the empty slab in kmem_cache_vma was reaped
+    mov rax, [kmem_cache_vma + kmem_cache_t.slabs_free]
+    test rax, rax
+    jnz .slab_reap_fail_eviction
+
+    ; Verify that physical free pages count increased by 1 (the reaped slab/page)
+    mov rax, [phys_state + phys_state_t.free_pages]
+    mov rbx, r13
+    inc rbx
+    cmp rax, rbx
+    jne .slab_reap_fail_count
+
+    ; Step E: Reset watermarks back to 0
+    mov qword [kswapd_low_watermark], 0
+    mov qword [kswapd_high_watermark], 0
+
+    ; Slab Reaping Test PASSED!
+    mov rsi, msg_slab_reap_test_passed
+    call uart_print_str
+    jmp .idle
+
+.slab_reap_fail_setup:
+    mov rsi, msg_slab_reap_fail_setup_str
+    call uart_print_str
+    jmp .panic
+
+.slab_reap_fail_eviction:
+    mov rsi, msg_slab_reap_fail_eviction_str
+    call uart_print_str
+    jmp .panic
+
+.slab_reap_fail_count:
+    mov rsi, msg_slab_reap_fail_count_str
     call uart_print_str
     jmp .panic
 
@@ -2760,6 +2825,13 @@ msg_slab_ctor_test_passed:     db "VMM Slab Object Constructor Reuse Test PASSED
 msg_test_cache_name:           db "kmem_test_ctor", 0
 msg_slab_fail_ctor_str:        db "Failure: Slab object constructor magic value not found.", 0x0D, 0x0A, 0
 msg_slab_fail_ctor_chain_str:  db "Failure: Slab constructor chain contains null next pointer.", 0x0D, 0x0A, 0
+
+; Slab Reaping Test Messages
+msg_slab_reap_test_start:       db "Running VMM Slab Reaping Test...", 0x0D, 0x0A, 0
+msg_slab_reap_test_passed:      db "VMM Slab Reaping Test PASSED!", 0x0D, 0x0A, 0
+msg_slab_reap_fail_setup_str:   db "Failure: Could not setup empty slab in kmem_cache_vma slabs_free.", 0x0D, 0x0A, 0
+msg_slab_reap_fail_eviction_str:db "Failure: Empty slab not reaped/removed from slabs_free under RAM pressure.", 0x0D, 0x0A, 0
+msg_slab_reap_fail_count_str:   db "Failure: Physical free pages count not incremented after reaping slab.", 0x0D, 0x0A, 0
 
 
 
