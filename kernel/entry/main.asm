@@ -2847,7 +2847,170 @@ test_ctor:
     ; Pool Allocator Test PASSED!
     mov rsi, msg_pool_test_passed
     call uart_print_str
+    jmp .run_memcpy_test
+
+.run_memcpy_test:
+    mov rsi, msg_memcpy_test_start
+    call uart_print_str
+
+    push r12
+    push r13
+
+    ; Allocate source buffer (128 bytes)
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memcpy_fail_alloc
+    mov r12, rax                    ; R12 = Src buffer
+
+    ; Allocate destination buffer (128 bytes)
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memcpy_fail_alloc
+    mov r13, rax                    ; R13 = Dst buffer
+
+    ; Populate Src buffer with 0, 1, 2, ..., 127
+    xor rcx, rcx
+.populate_loop:
+    mov [r12 + rcx], cl
+    inc rcx
+    cmp rcx, 128
+    jb .populate_loop
+
+    ; Run cases
+    mov rcx, 0
+    call .run_one_memcpy_case
+    mov rcx, 1
+    call .run_one_memcpy_case
+    mov rcx, 7
+    call .run_one_memcpy_case
+    mov rcx, 15
+    call .run_one_memcpy_case
+    mov rcx, 16
+    call .run_one_memcpy_case
+    mov rcx, 23
+    call .run_one_memcpy_case
+    mov rcx, 31
+    call .run_one_memcpy_case
+    mov rcx, 32
+    call .run_one_memcpy_case
+    mov rcx, 35
+    call .run_one_memcpy_case
+    mov rcx, 64
+    call .run_one_memcpy_case
+    mov rcx, 100
+    call .run_one_memcpy_case
+
+    ; Free buffers
+    mov rdi, r12
+    call heap_free
+    mov rdi, r13
+    call heap_free
+
+    pop r13
+    pop r12
+
+    ; memcpy Test PASSED!
+    mov rsi, msg_memcpy_test_passed
+    call uart_print_str
     jmp .idle
+
+.run_one_memcpy_case:
+    push rcx
+
+    ; Zero out destination buffer (128 bytes)
+    mov rdi, r13
+    mov rdx, 128
+.zero_loop:
+    mov byte [rdi], 0
+    inc rdi
+    dec rdx
+    jnz .zero_loop
+
+    ; Call memcpy(r13, r12, rcx)
+    mov rdi, r13
+    mov rsi, r12
+    pop rdx                         ; RDX = size N
+    push rdx                        ; save for verification
+    call memcpy                     ; RAX = dest pointer
+
+    ; Verify return value
+    cmp rax, r13
+    jne .memcpy_fail_ret_pop
+
+    pop rdx                         ; RDX = size N
+    push rdx
+
+    ; Verify first N bytes match
+    test rdx, rdx
+    jz .check_tail                  ; if N == 0, skip checking payload
+    xor rcx, rcx                    ; RCX = index i
+.payload_loop:
+    mov al, [r13 + rcx]
+    cmp al, cl                      ; since Src[i] == i, [r13 + i] must be i
+    jne .memcpy_fail_data_pop
+    inc rcx
+    cmp rcx, rdx
+    jb .payload_loop
+
+.check_tail:
+    pop rdx                         ; RDX = size N
+    push rdx
+    ; Verify remaining 128-N bytes are 0
+    mov rcx, rdx                    ; RCX = index i = N
+.tail_loop:
+    cmp rcx, 128
+    jae .done_case
+    mov al, [r13 + rcx]
+    test al, al
+    jnz .memcpy_fail_extra_pop
+    inc rcx
+    jmp .tail_loop
+
+.done_case:
+    pop rdx
+    ret
+
+.memcpy_fail_ret_pop:
+    pop rdx
+    pop r13
+    pop r12
+    jmp .memcpy_fail_ret
+
+.memcpy_fail_data_pop:
+    pop rdx
+    pop r13
+    pop r12
+    jmp .memcpy_fail_data
+
+.memcpy_fail_extra_pop:
+    pop rdx
+    pop r13
+    pop r12
+    jmp .memcpy_fail_extra
+
+.memcpy_fail_alloc:
+    pop r13
+    pop r12
+    mov rsi, msg_memcpy_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.memcpy_fail_ret:
+    mov rsi, msg_memcpy_fail_ret_str
+    call uart_print_str
+    jmp .panic
+
+.memcpy_fail_data:
+    mov rsi, msg_memcpy_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.memcpy_fail_extra:
+    mov rsi, msg_memcpy_fail_extra_str
+    call uart_print_str
+    jmp .panic
 
 .pool_fail_grow_alloc:
     pop rbp
@@ -3930,6 +4093,14 @@ msg_pool_fail_tag_str:               db "Failure: Pool generation tag was not up
 msg_pool_fail_grow_alloc_str:        db "Failure: pool_alloc returned NULL during dynamic pool expansion.", 0x0D, 0x0A, 0
 msg_pool_fail_capacity_grow_str:     db "Failure: Pool capacity did not grow correctly.", 0x0D, 0x0A, 0
 msg_pool_fail_count_grow_str:        db "Failure: Pool count after growth/free operations is incorrect.", 0x0D, 0x0A, 0
+
+; AVX2 Optimized Memory Primitives Test Messages
+msg_memcpy_test_start:               db "Running VMM AVX2-Optimized memcpy Test...", 0x0D, 0x0A, 0
+msg_memcpy_test_passed:              db "VMM AVX2-Optimized memcpy Test PASSED!", 0x0D, 0x0A, 0
+msg_memcpy_fail_alloc_str:           db "Failure: Could not allocate memory for memcpy test buffers.", 0x0D, 0x0A, 0
+msg_memcpy_fail_ret_str:             db "Failure: memcpy did not return the destination pointer.", 0x0D, 0x0A, 0
+msg_memcpy_fail_data_str:            db "Failure: memcpy did not copy the data payload correctly.", 0x0D, 0x0A, 0
+msg_memcpy_fail_extra_str:           db "Failure: memcpy corrupted memory past the requested copy size.", 0x0D, 0x0A, 0
 
 
 
