@@ -22,6 +22,11 @@ extern numa_get_node_by_phys
 extern bitmap_set_bit_local
 extern bitmap_clear_bit_local
 extern bitmap_find_free_local
+extern uart_print_dec
+extern msg_numa_fallback_prefix
+extern msg_numa_fallback_middle
+extern msg_numa_fallback_dist
+extern msg_numa_fallback_suffix
 
 section .text
 
@@ -657,7 +662,25 @@ phys_alloc_pages_node:
 
     ; Allocation succeeded on candidate node rbp!
     mov rdx, rax                    ; RDX = relative start page index
-    ; fall through to .perform_alloc
+
+    ; Print fallback log
+    push rdx
+    mov rsi, msg_numa_fallback_prefix
+    call uart_print_str
+    mov rax, r12
+    call uart_print_dec
+    mov rsi, msg_numa_fallback_middle
+    call uart_print_str
+    mov rax, rbp
+    call uart_print_dec
+    mov rsi, msg_numa_fallback_dist
+    call uart_print_str
+    mov rax, r8
+    call uart_print_dec
+    mov rsi, msg_numa_fallback_suffix
+    call uart_print_str
+    pop rdx
+    jmp .perform_alloc
 
 .perform_alloc:
     ; RBX = node_ptr
