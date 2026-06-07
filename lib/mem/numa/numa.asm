@@ -541,6 +541,11 @@ global numa_node_count
 global numa_distance_matrix
 global numa_nodes
 global numa_local_bitmaps_active
+global msg_numa_fallback_prefix
+global msg_numa_fallback_middle
+global msg_numa_fallback_dist
+global msg_numa_fallback_suffix
+
 
 numa_ranges:          times NUMA_MAX_RANGES * numa_range_t_size db 0
 numa_range_count:     dq 0
@@ -551,5 +556,10 @@ numa_local_bitmaps_active:   dq 0
 
 msg_numa_local_bitmaps_ok:   db "NUMA: Node-Local Bitmaps successfully initialized.", 0x0D, 0x0A, 0
 msg_err_numa_bitmap_oom:    db "Panic: Out of memory during NUMA local bitmap allocation.", 0x0D, 0x0A, 0
+
+msg_numa_fallback_prefix: db "NUMA: Node ", 0
+msg_numa_fallback_middle: db " OOM, falling back to Node ", 0
+msg_numa_fallback_dist:   db " (distance ", 0
+msg_numa_fallback_suffix: db ")", 0x0D, 0x0A, 0
 
 %endif ; LIB_MEM_NUMA_NUMA_ASM
