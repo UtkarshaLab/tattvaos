@@ -69,11 +69,11 @@ paging_setup:
     cld                             ; Clear direction flag for rep stosd
     ; -------------------------------------------------------------------------
     ; Step 1: Zero all page table memory
-    ; 6 tables × 4KB = 24KB total
-    ; Start at PAGING_PML4, clear 24KB
+    ; 7 tables × 4KB = 28KB total
+    ; Start at PAGING_PML4, clear 28KB
     ; -------------------------------------------------------------------------
     mov edi, PAGING_PML4
-    mov ecx, (6 * 4096) / 4        ; 24KB in dwords
+    mov ecx, (7 * 4096) / 4        ; 28KB in dwords
     xor eax, eax
     rep stosd                       ; zero fill
 
@@ -143,6 +143,32 @@ paging_setup:
     mov edi, PAGING_PD3
     mov ebx, 0xC0000000             ; starting physical address: 3GB
     call paging_fill_pd
+
+    ; -------------------------------------------------------------------------
+    ; Step 5: Split the first 2MB page of PD0 into 4KB pages in PT0
+    ; -------------------------------------------------------------------------
+    mov edi, PAGING_PD0
+    mov eax, PAGING_PT0
+    or eax, PAGE_KERNEL             ; present + read/write
+    mov [edi], eax
+    mov dword [edi + 4], 0          ; NX=0
+
+    ; Initialize PT0 to flat identity map (0 to 2MB)
+    mov edi, PAGING_PT0
+    xor ebx, ebx                    ; starting physical address = 0
+    mov ecx, 512                    ; 512 entries of 4KB each
+
+.pt_loop:
+    mov eax, ebx
+    or eax, PAGE_KERNEL             ; present + read/write
+    mov [edi], eax
+    mov dword [edi + 4], 0          ; NX=0
+    
+    add ebx, 0x1000                 ; next 4KB physical page
+    add edi, 8                      ; next page table entry
+    dec ecx
+    jnz .pt_loop
+
 
     pop edi
     pop ecx
