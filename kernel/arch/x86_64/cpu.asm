@@ -80,6 +80,7 @@ cpu_init_hardware:
     mov rax, cr4
     or rax, 1 << 20                 ; set SMEP (bit 20)
     mov cr4, rax
+    mov byte [cpu_has_smep], 1      ; Record SMEP support
     jmp .check_smap
 .no_smep:
     mov rsi, msg_warn_smep
@@ -90,6 +91,7 @@ cpu_init_hardware:
     mov rax, cr4
     or rax, 1 << 21                 ; set SMAP (bit 21)
     mov cr4, rax
+    mov byte [cpu_has_smap], 1      ; Record SMAP support
     jmp .smap_done
 .no_smap:
     mov rsi, msg_warn_smap
@@ -449,6 +451,11 @@ cpu_get_stack_top:
 ; Data & Warn Messages
 ; -----------------------------------------------------------------------------
 section .data
+
+global cpu_has_smep
+global cpu_has_smap
+cpu_has_smep:       db 0
+cpu_has_smap:       db 0
 
 align 8
 default_mxcsr:      dd 0x9FC0       ; FTZ=1, DAZ=1, masks exceptions, round-to-nearest
