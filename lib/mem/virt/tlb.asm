@@ -273,4 +273,83 @@ tlb_invpcid:
     xor rax, rax
     ret
 
+; -----------------------------------------------------------------------------
+; virt_mark_read_only_range — walks page tables and clears PAGE_WRITABLE (bit 1) on a range
+; Input:
+;   RDI = starting virtual address
+;   RSI = range size in bytes
+; Output: none
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8
+; -----------------------------------------------------------------------------
+global virt_mark_read_only_range
+virt_mark_read_only_range:
+    push rbx
+    push r12
+    push r13
+
+    test rsi, rsi
+    jz .ro_done
+
+    ; Align start virtual address down to 4KB
+    mov r12, rdi
+    and r12, -4096                  ; R12 = current virtual address
+    
+    ; Calculate end address
+    mov r13, rdi
+    add r13, rsi                    ; R13 = end virtual address
+
+.ro_loop:
+    cmp r12, r13
+    jae .ro_done
+
+    ; Walk page table using current virtual address
+    mov rdi, r12
+    xor rsi, rsi                    ; use current CR3
+    call virt_walk_table            ; RAX = PTE address, RDX = level
+    test rax, rax
+    jz .ro_not_mapped
+
+    ; Clear the Writable bit (bit 1: PAGE_WRITABLE) in the entry
+    and qword [rax], ~0x02
+
+    ; Check resolved level to know how much to advance
+    cmp rdx, 2                      ; 1GB super page
+    je .ro_advance_1gb
+    cmp rdx, 3                      ; 2MB huge page
+    je .ro_advance_2mb
+
+.ro_advance_4kb:
+    add r12, 4096
+    jmp .ro_loop
+
+.ro_advance_2mb:
+    mov rax, r12
+    and rax, 0x1FFFFF               ; offset in 2MB page
+    mov rcx, 0x200000
+    sub rcx, rax                    ; remaining bytes in this 2MB page
+    add r12, rcx
+    jmp .ro_loop
+
+.ro_advance_1gb:
+    mov rax, r12
+    and rax, 0x3FFFFFFF             ; offset in 1GB page
+    mov rcx, 0x40000000
+    sub rcx, rax                    ; remaining bytes in this 1GB page
+    add r12, rcx
+    jmp .ro_loop
+
+.ro_not_mapped:
+    ; Not mapped, just advance by 4KB to check next page
+    add r12, 4096
+    jmp .ro_loop
+
+.ro_done:
+    ; Flush the TLB to make the write protection active immediately
+    call tlb_flush_all_global
+
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
 %endif ; LIB_MEM_VIRT_TLB_ASM
