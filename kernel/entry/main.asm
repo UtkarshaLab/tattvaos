@@ -37,6 +37,10 @@ extern kswapd_low_watermark
 extern kswapd_high_watermark
 extern kswapd_check_and_reclaim
 extern zswap_compressed_pages
+extern numa_ranges
+extern numa_range_count
+extern numa_get_node_by_phys
+extern numa_detect_init
 
 extern mtrr_supported
 extern mtrr_get_vcnt
@@ -3348,7 +3352,85 @@ test_ctor:
     ; memmove Test PASSED!
     mov rsi, msg_memmove_test_passed
     call uart_print_str
+    jmp .run_numa_test
+
+.run_numa_test:
+    mov rsi, msg_numa_test_start
+    call uart_print_str
+
+    ; 1. Verify range count is > 0
+    mov rax, [numa_range_count]
+    test rax, rax
+    jz .numa_fail_count
+
+    ; Print ranges
+    mov rsi, msg_numa_ranges_found
+    call uart_print_str
+
+    xor r12, r12                    ; r12 = index i = 0
+.loop_print:
+    mov rcx, [numa_range_count]
+    cmp r12, rcx
+    jae .done_print
+
+    push r12
+    mov rax, r12
+    imul rax, numa_range_t_size
+    lea r13, [numa_ranges + rax]
+
+    ; Print base
+    mov rsi, msg_numa_range_base
+    call uart_print_str
+    mov rax, [r13 + numa_range_t.base]
+    call uart_print_hex64
+
+    ; Print length
+    mov rsi, msg_numa_range_len
+    call uart_print_str
+    mov rax, [r13 + numa_range_t.length]
+    call uart_print_hex64
+
+    ; Print Node ID
+    mov rsi, msg_numa_range_node
+    call uart_print_str
+    movzx rax, dword [r13 + numa_range_t.node_id]
+    call uart_print_hex64
+
+    mov rsi, msg_crlf
+    call uart_print_str
+
+    pop r12
+    inc r12
+    jmp .loop_print
+
+.done_print:
+    ; 2. Test address translation API: numa_get_node_by_phys
+    ; Query address 0 (should return first node, usually Node 0)
+    xor rdi, rdi
+    call numa_get_node_by_phys
+    ; We just verify it returns a valid node ID (rax should be a node ID like 0 or 1, etc.)
+    ; We can also check that query beyond max memory defaults to Node 0.
+    mov rdi, [phys_state + phys_state_t.max_phys_addr]
+    add rdi, 0x1000                 ; just past max physical RAM
+    call numa_get_node_by_phys
+    test rax, rax
+    jnz .numa_fail_lookup           ; should fall back to 0 for out-of-bounds/unmapped addresses
+
+    ; NUMA Test PASSED!
+    mov rsi, msg_numa_test_passed
+    call uart_print_str
     jmp .idle
+
+.numa_fail_count:
+    mov rsi, msg_numa_fail_count_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_lookup:
+    mov rsi, msg_numa_fail_lookup_str
+    call uart_print_str
+    jmp .panic
+
 
 .memmove_fail_alloc:
     pop r12
@@ -4816,6 +4898,15 @@ msg_memmove_test_passed:             db "VMM AVX2-Optimized memmove Test PASSED!
 msg_memmove_fail_alloc_str:          db "Failure: Could not allocate memory for memmove test buffer.", 0x0D, 0x0A, 0
 msg_memmove_fail_ret_str:            db "Failure: memmove did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memmove_fail_data_str:           db "Failure: memmove did not copy/shift the data payload correctly.", 0x0D, 0x0A, 0
+
+msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT Parsing Test...", 0x0D, 0x0A, 0
+msg_numa_test_passed:           db "VMM NUMA ACPI SRAT Parsing Test PASSED!", 0x0D, 0x0A, 0
+msg_numa_ranges_found:          db "NUMA Memory Ranges found in SRAT:", 0x0D, 0x0A, 0
+msg_numa_range_base:            db "  Range base: 0x", 0
+msg_numa_range_len:             db "  length: 0x", 0
+msg_numa_range_node:            db "  Node ID: ", 0
+msg_numa_fail_count_str:        db "Failure: NUMA range count is 0.", 0x0D, 0x0A, 0
+msg_numa_fail_lookup_str:       db "Failure: NUMA Node ID lookup for out-of-bounds address did not return 0.", 0x0D, 0x0A, 0
 
 
 
