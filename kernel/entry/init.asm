@@ -154,6 +154,7 @@ mm_init:
     call heap_init
     call page_list_init
     call numa_detect_init
+    call numa_init_local_bitmaps
     call swap_init
     call kswapd_init
     call heap_transition
