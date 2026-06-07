@@ -39,8 +39,11 @@ extern kswapd_check_and_reclaim
 extern zswap_compressed_pages
 extern numa_ranges
 extern numa_range_count
+extern numa_node_count
 extern numa_get_node_by_phys
 extern numa_detect_init
+extern numa_get_distance
+extern uart_print_dec
 
 extern mtrr_supported
 extern mtrr_get_vcnt
@@ -3367,13 +3370,15 @@ test_ctor:
     mov rsi, msg_numa_ranges_found
     call uart_print_str
 
+    push r12
+    push r13
+
     xor r12, r12                    ; r12 = index i = 0
 .loop_print:
     mov rcx, [numa_range_count]
     cmp r12, rcx
     jae .done_print
 
-    push r12
     mov rax, r12
     imul rax, numa_range_t_size
     lea r13, [numa_ranges + rax]
@@ -3399,7 +3404,6 @@ test_ctor:
     mov rsi, msg_crlf
     call uart_print_str
 
-    pop r12
     inc r12
     jmp .loop_print
 
@@ -3414,7 +3418,87 @@ test_ctor:
     add rdi, 0x1000                 ; just past max physical RAM
     call numa_get_node_by_phys
     test rax, rax
-    jnz .numa_fail_lookup           ; should fall back to 0 for out-of-bounds/unmapped addresses
+    jnz .numa_fail_lookup_pop       ; should fall back to 0 for out-of-bounds/unmapped addresses
+
+    ; 3. Print numa_node_count
+    mov rsi, msg_numa_node_count
+    call uart_print_str
+    mov rax, [numa_node_count]
+    call uart_print_dec
+    mov rsi, msg_crlf
+    call uart_print_str
+
+    ; 4. Print relative distance matrix
+    mov rsi, msg_numa_matrix_header
+    call uart_print_str
+
+    xor r12, r12                    ; r12 = node_from = 0
+.loop_node_from:
+    mov rcx, [numa_node_count]
+    cmp r12, rcx
+    jae .done_matrix_print
+
+    xor r13, r13                    ; r13 = node_to = 0
+.loop_node_to:
+    mov rcx, [numa_node_count]
+    cmp r13, rcx
+    jae .next_node_from
+
+    ; Print "  Node "
+    mov rsi, msg_numa_node_prefix
+    call uart_print_str
+    mov rax, r12
+    call uart_print_dec
+    ; Print " -> "
+    mov rsi, msg_numa_node_arrow
+    call uart_print_str
+    mov rax, r13
+    call uart_print_dec
+    ; Print ": "
+    mov rsi, msg_numa_node_colon
+    call uart_print_str
+
+    ; Call numa_get_distance
+    mov rdi, r12
+    mov rsi, r13
+    call numa_get_distance          ; RAX = distance
+    call uart_print_dec
+    
+    mov rsi, msg_crlf
+    call uart_print_str
+
+    inc r13
+    jmp .loop_node_to
+
+.next_node_from:
+    inc r12
+    jmp .loop_node_from
+
+.done_matrix_print:
+    ; 5. Verify numa_get_distance bounds checking by querying invalid nodes and checking for 255.
+    ; Case A: node_from >= count
+    mov rdi, [numa_node_count]
+    xor rsi, rsi
+    call numa_get_distance
+    cmp rax, 255
+    jne .numa_fail_distance_pop
+
+    ; Case B: node_to >= count
+    xor rdi, rdi
+    mov rsi, [numa_node_count]
+    call numa_get_distance
+    cmp rax, 255
+    jne .numa_fail_distance_pop
+
+    ; Case C: very large node ID (99)
+    mov rdi, 99
+    xor rsi, rsi
+    call numa_get_distance
+    cmp rax, 255
+    jne .numa_fail_distance_pop
+
+    pop r13
+    pop r12
 
     ; NUMA Test PASSED!
     mov rsi, msg_numa_test_passed
@@ -3426,8 +3510,19 @@ test_ctor:
     call uart_print_str
     jmp .panic
 
+.numa_fail_lookup_pop:
+    pop r13
+    pop r12
 .numa_fail_lookup:
     mov rsi, msg_numa_fail_lookup_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_distance_pop:
+    pop r13
+    pop r12
+.numa_fail_distance_bounds:
+    mov rsi, msg_numa_fail_dist_bounds_str
     call uart_print_str
     jmp .panic
 
@@ -4899,14 +4994,20 @@ msg_memmove_fail_alloc_str:          db "Failure: Could not allocate memory for 
 msg_memmove_fail_ret_str:            db "Failure: memmove did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memmove_fail_data_str:           db "Failure: memmove did not copy/shift the data payload correctly.", 0x0D, 0x0A, 0
 
-msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT Parsing Test...", 0x0D, 0x0A, 0
-msg_numa_test_passed:           db "VMM NUMA ACPI SRAT Parsing Test PASSED!", 0x0D, 0x0A, 0
+msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT/SLIT Parsing Test...", 0x0D, 0x0A, 0
+msg_numa_test_passed:           db "VMM NUMA ACPI SRAT/SLIT Parsing Test PASSED!", 0x0D, 0x0A, 0
 msg_numa_ranges_found:          db "NUMA Memory Ranges found in SRAT:", 0x0D, 0x0A, 0
 msg_numa_range_base:            db "  Range base: 0x", 0
 msg_numa_range_len:             db "  length: 0x", 0
 msg_numa_range_node:            db "  Node ID: ", 0
+msg_numa_node_count:           db "NUMA Node Count: ", 0
+msg_numa_matrix_header:        db "NUMA Node Distance Matrix:", 0x0D, 0x0A, 0
+msg_numa_node_prefix:          db "  Node ", 0
+msg_numa_node_arrow:           db " -> ", 0
+msg_numa_node_colon:           db ": ", 0
 msg_numa_fail_count_str:        db "Failure: NUMA range count is 0.", 0x0D, 0x0A, 0
 msg_numa_fail_lookup_str:       db "Failure: NUMA Node ID lookup for out-of-bounds address did not return 0.", 0x0D, 0x0A, 0
+msg_numa_fail_dist_bounds_str: db "Failure: NUMA distance out-of-bounds check did not return 255.", 0x0D, 0x0A, 0
 
 
 
