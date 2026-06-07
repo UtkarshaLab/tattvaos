@@ -81,4 +81,25 @@ struc pool_t
     .free_tag   resq 1          ; ABA-prevention tag counter (16-byte aligned)
 endstruc
 
+; NUMA memory range mapping structure
+struc numa_range_t
+    .base       resq 1          ; Base physical address (64-bit)
+    .length     resq 1          ; Range length in bytes (64-bit)
+    .node_id    resd 1          ; Proximity Domain / Node ID (32-bit)
+    .flags      resd 1          ; Flags (bit 0 = Enabled)
+endstruc
+
+; NUMA node structure
+struc numa_node_t
+    .node_id         resd 1          ; Proximity Domain / Node ID
+    .flags           resd 1          ; Flags (bit 0 = Active/Present, bit 1 = Bitmaps Init)
+    .start_page      resq 1          ; Smallest page index in this node
+    .end_page        resq 1          ; Largest page index in this node (exclusive)
+    .bitmap_addr     resq 1          ; Physical address of this node's bitmap
+    .bitmap_size     resq 1          ; Size of this node's bitmap in bytes
+    .total_pages     resq 1          ; Usable page count in this node
+    .free_pages      resq 1          ; Free page count in this node
+    .reserved_pages  resq 1          ; Reserved page count in this node
+endstruc
+
 %endif ; LIB_MEM_MEM_INC
