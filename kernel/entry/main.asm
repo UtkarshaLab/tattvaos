@@ -3581,6 +3581,48 @@ test_ctor:
     mov rdi, r14
     call phys_free_page
 
+    ; 10. Test fallback under simulated Node 0 memory exhaustion
+    mov rax, [numa_node_count]
+    cmp rax, 1
+    jbe .numa_sim_oom_done
+
+    mov rsi, msg_numa_sim_oom_start
+    call uart_print_str
+
+    ; Save Node 0's end_page
+    mov rax, [numa_nodes + numa_node_t.end_page]
+    push rax
+
+    ; Simulate Node 0 exhaustion: set Node 0's end_page equal to its start_page
+    mov rcx, [numa_nodes + numa_node_t.start_page]
+    mov [numa_nodes + numa_node_t.end_page], rcx
+
+    ; Allocate from Node 0 (should fail on Node 0 and fallback to Node 1)
+    xor rdi, rdi                    ; requested node 0
+    call phys_alloc_page_node
+    test rax, rax
+    jz .numa_fail_sim_oom_alloc_pop
+
+    mov r14, rax                    ; save allocated address in R14
+
+    ; Verify node affinity of returned address: should be Node 1
+    mov rdi, r14
+    call numa_get_node_by_phys      ; RAX = Node ID
+    cmp rax, 1
+    jne .numa_fail_sim_oom_affinity_pop
+
+    ; Free the page
+    mov rdi, r14
+    call phys_free_page
+
+    ; Restore Node 0's end_page
+    pop rax
+    mov [numa_nodes + numa_node_t.end_page], rax
+
+    mov rsi, msg_numa_sim_oom_ok
+    call uart_print_str
+
+.numa_sim_oom_done:
     pop r14
     pop r13
     pop r12
@@ -3648,6 +3690,31 @@ test_ctor:
     mov rsi, msg_numa_fail_fallback_str
     call uart_print_str
     jmp .panic
+
+.numa_fail_sim_oom_alloc_pop:
+    pop rax
+    mov [numa_nodes + numa_node_t.end_page], rax
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_sim_oom_alloc:
+    mov rsi, msg_numa_fail_sim_oom_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_sim_oom_affinity_pop:
+    mov rdi, r14
+    call phys_free_page
+    pop rax
+    mov [numa_nodes + numa_node_t.end_page], rax
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_sim_oom_affinity:
+    mov rsi, msg_numa_fail_sim_oom_affinity_str
+    call uart_print_str
+    jmp .panic
+
 
 
 .memmove_fail_alloc:
@@ -5117,8 +5184,8 @@ msg_memmove_fail_alloc_str:          db "Failure: Could not allocate memory for 
 msg_memmove_fail_ret_str:            db "Failure: memmove did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memmove_fail_data_str:           db "Failure: memmove did not copy/shift the data payload correctly.", 0x0D, 0x0A, 0
 
-msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT/SLIT Parsing & Local Bitmaps Test...", 0x0D, 0x0A, 0
-msg_numa_test_passed:           db "VMM NUMA ACPI SRAT/SLIT Parsing & Local Bitmaps Test PASSED!", 0x0D, 0x0A, 0
+msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT/SLIT Parsing & Fallback Test...", 0x0D, 0x0A, 0
+msg_numa_test_passed:           db "VMM NUMA ACPI SRAT/SLIT Parsing & Fallback Test PASSED!", 0x0D, 0x0A, 0
 msg_numa_ranges_found:          db "NUMA Memory Ranges found in SRAT:", 0x0D, 0x0A, 0
 msg_numa_range_base:            db "  Range base: 0x", 0
 msg_numa_range_len:             db "  length: 0x", 0
@@ -5132,6 +5199,8 @@ msg_numa_local_info_header:  db "NUMA Node-Local Bitmap Info:", 0x0D, 0x0A, 0
 msg_numa_node_bmp_base:     db " Bitmap: Base=0x", 0
 msg_numa_node_bmp_size:     db " Size=0x", 0
 msg_numa_node_bmp_free:     db " FreePages=", 0
+msg_numa_sim_oom_start:      db "NUMA: Starting simulated Node 0 memory exhaustion test...", 0x0D, 0x0A, 0
+msg_numa_sim_oom_ok:         db "NUMA: Simulated Node 0 memory exhaustion test PASSED!", 0x0D, 0x0A, 0
 msg_numa_fail_count_str:        db "Failure: NUMA range count is 0.", 0x0D, 0x0A, 0
 msg_numa_fail_lookup_str:       db "Failure: NUMA Node ID lookup for out-of-bounds address did not return 0.", 0x0D, 0x0A, 0
 msg_numa_fail_dist_bounds_str: db "Failure: NUMA distance out-of-bounds check did not return 255.", 0x0D, 0x0A, 0
@@ -5139,6 +5208,8 @@ msg_numa_fail_bmp_init_str:  db "Failure: Node-Local bitmaps not initialized or 
 msg_numa_fail_alloc_node_str:db "Failure: phys_alloc_page_node returned 0 for Node 0.", 0x0D, 0x0A, 0
 msg_numa_fail_affinity_str:  db "Failure: Allocated page Node ID does not match requested Node ID.", 0x0D, 0x0A, 0
 msg_numa_fail_fallback_str:  db "Failure: Fallback allocation for out-of-bounds node 99 returned 0.", 0x0D, 0x0A, 0
+msg_numa_fail_sim_oom_alloc_str: db "Failure: Fallback allocation under simulated OOM returned 0.", 0x0D, 0x0A, 0
+msg_numa_fail_sim_oom_affinity_str: db "Failure: Fallback allocation under simulated OOM did not allocate from adjacent Node 1.", 0x0D, 0x0A, 0
 
 
 
