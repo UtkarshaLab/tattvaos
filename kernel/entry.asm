@@ -28,6 +28,9 @@ ulf_header:
 ; Kernel Entry Point
 ; -----------------------------------------------------------------------------
 kernel_entry:
+    section .text
+    global kernel_text_start
+kernel_text_start:
     %include "entry/start.asm"
     %include "entry/init.asm"
     %include "entry/main.asm"
@@ -44,6 +47,9 @@ kernel_entry:
 %include "lib/hw/ucpu/pat.asm"
 %include "drivers/gpu/fb.asm"
 
+    section .text
+    global kernel_text_end
+kernel_text_end:
 
 align 8
 kernel_end:
