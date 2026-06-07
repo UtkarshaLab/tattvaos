@@ -3701,6 +3701,66 @@ test_ctor:
     mov rsi, msg_smep_smap_test_passed
     call uart_print_str
 
+    jmp .zero_on_free_test
+
+.zero_on_free_test:
+    ; -------------------------------------------------------------
+    ; Zero on Free Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_zof_test_start
+    call uart_print_str
+
+    ; --- 1. Test Heap Allocator Zeroing ---
+    mov rdi, 64
+    call heap_alloc                 ; RAX = allocated pointer
+    test rax, rax
+    jz .zof_fail_heap_alloc
+    mov r12, rax                    ; R12 = heap block pointer
+
+    ; Write signature to the block
+    mov qword [r12], 0x123456789ABCDEF0
+    mov qword [r12 + 8], 0x123456789ABCDEF0
+    mov qword [r12 + 16], 0x123456789ABCDEF0
+    mov qword [r12 + 24], 0x123456789ABCDEF0
+
+    ; Free the block
+    mov rdi, r12
+    call heap_free
+
+    ; Verify that the payload is zeroed out
+    cmp qword [r12], 0
+    jne .zof_fail_heap_zero
+    cmp qword [r12 + 8], 0
+    jne .zof_fail_heap_zero
+    cmp qword [r12 + 16], 0
+    jne .zof_fail_heap_zero
+    cmp qword [r12 + 24], 0
+    jne .zof_fail_heap_zero
+
+    ; --- 2. Test Physical Page Allocator Zeroing ---
+    call phys_alloc_page            ; RAX = physical page address
+    test rax, rax
+    jz .zof_fail_phys_alloc
+    mov r13, rax                    ; R13 = physical page address
+
+    ; Write signature
+    mov qword [r13], 0xDEADBEEFCAFEBAB1
+    mov qword [r13 + 4088], 0xDEADBEEFCAFEBAB2
+
+    ; Free page
+    mov rdi, r13
+    call phys_free_page
+
+    ; Verify zeroed
+    cmp qword [r13], 0
+    jne .zof_fail_phys_zero
+    cmp qword [r13 + 4088], 0
+    jne .zof_fail_phys_zero
+
+    ; VMM Zeroing on Free Tests PASSED!
+    mov rsi, msg_zof_test_passed
+    call uart_print_str
+
     jmp .idle
 
 .smep_smap_fail_alloc:
@@ -5345,6 +5405,13 @@ msg_smep_smap_fail_map_str:    db "Failure: Could not map user page.", 0x0D, 0x0
 msg_smep_smap_fail_copy_to_str: db "Failure: copy_to_user returned error or failed.", 0x0D, 0x0A, 0
 msg_smep_smap_fail_copy_from_str: db "Failure: copy_from_user returned error or failed.", 0x0D, 0x0A, 0
 msg_smep_smap_fail_data_str:   db "Failure: Data read back from user page does not match signature.", 0x0D, 0x0A, 0
+
+msg_zof_test_start:             db "Running VMM Zeroing on Free Tests...", 0x0D, 0x0A, 0
+msg_zof_test_passed:            db "VMM Zeroing on Free Tests PASSED!", 0x0D, 0x0A, 0
+msg_zof_fail_heap_alloc_str:    db "Failure: Could not allocate memory from heap for Zero on Free test.", 0x0D, 0x0A, 0
+msg_zof_fail_heap_zero_str:     db "Failure: Heap memory was not zeroed out on free.", 0x0D, 0x0A, 0
+msg_zof_fail_phys_alloc_str:    db "Failure: Could not allocate physical page for Zero on Free test.", 0x0D, 0x0A, 0
+msg_zof_fail_phys_zero_str:     db "Failure: Physical page was not zeroed out on free.", 0x0D, 0x0A, 0
 
 section .bss
 align 8
