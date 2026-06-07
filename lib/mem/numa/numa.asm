@@ -23,6 +23,11 @@ endstruc
 ; Maximum memory ranges we support parsing from SRAT
 NUMA_MAX_RANGES equ 32
 
+; NUMA node distance matrix constants
+NUMA_MAX_NODES equ 8
+NUMA_DEFAULT_LOCAL_DISTANCE equ 10
+NUMA_DEFAULT_REMOTE_DISTANCE equ 20
+
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -87,6 +92,59 @@ numa_get_node_by_phys:
     ret
 
 ; -----------------------------------------------------------------------------
+; numa_get_distance — gets relative memory distance between two nodes
+; Input:
+;   RDI = node_from (Node ID)
+;   RSI = node_to (Node ID)
+; Output:
+;   RAX = relative distance (e.g. 10 = local, 20 = default remote, 255 = unreachable)
+; -----------------------------------------------------------------------------
+global numa_get_distance
+numa_get_distance:
+    push rbx
+    push rcx
+    push rdx
+
+    ; 1. Check bounds against numa_node_count
+    mov rcx, [numa_node_count]
+    test rcx, rcx
+    jz .local_check                 ; if count is 0 (uninitialized), do UMA check
+
+    cmp rdi, rcx
+    jae .out_of_bounds
+    cmp rsi, rcx
+    jae .out_of_bounds
+
+    ; Calculate index: node_from * numa_node_count + node_to
+    mov rax, rdi
+    imul rax, rcx
+    add rax, rsi                    ; RAX = index
+    
+    ; Load distance byte from matrix
+    lea rbx, [numa_distance_matrix]
+    movzx rax, byte [rbx + rax]
+    jmp .exit
+
+.local_check:
+    ; Fallback UMA check: if node_from == node_to, distance is 10, else 255
+    cmp rdi, rsi
+    je .local
+    mov rax, 255
+    jmp .exit
+.local:
+    mov rax, NUMA_DEFAULT_LOCAL_DISTANCE
+    jmp .exit
+
+.out_of_bounds:
+    mov rax, 255                    ; unreachable/invalid
+
+.exit:
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
 ; Data Section — NUMA ranges array and count
 ; -----------------------------------------------------------------------------
 section .data
@@ -94,8 +152,12 @@ section .data
 align 8
 global numa_ranges
 global numa_range_count
+global numa_node_count
+global numa_distance_matrix
 
-numa_ranges:        times NUMA_MAX_RANGES * numa_range_t_size db 0
-numa_range_count:   dq 0
+numa_ranges:          times NUMA_MAX_RANGES * numa_range_t_size db 0
+numa_range_count:     dq 0
+numa_node_count:      dq 0
+numa_distance_matrix: times NUMA_MAX_NODES * NUMA_MAX_NODES db 0
 
 %endif ; LIB_MEM_NUMA_NUMA_ASM
