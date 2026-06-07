@@ -155,6 +155,13 @@ mm_init:
 
     pop rax                         ; restore heap start address
 
+    ; 4b. Mark early heap as NX (No-Execute)
+    push rax
+    mov rdi, rax
+    mov rsi, 1024 * 4096            ; 4MB size
+    call virt_mark_nx_range
+    pop rax
+
     mov rdi, rax
     mov rsi, 1024 * 4096            ; 4MB size
     call heap_init
@@ -169,6 +176,12 @@ mm_init:
     ; 5. Unmap the kernel stack guard page to trap stack overflows
     mov rdi, kernel_stack_guard
     call virt_unmap
+
+    ; 5b. Mark active kernel stack as NX (No-Execute)
+    mov rdi, kernel_stack_bottom
+    mov rsi, kernel_stack_top
+    sub rsi, rdi                    ; size of stack
+    call virt_mark_nx_range
 
     ret
 
