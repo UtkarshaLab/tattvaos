@@ -39,6 +39,7 @@ PAGING_PD0      equ 0x12000     ; PD for 0GB - 1GB
 PAGING_PD1      equ 0x13000     ; PD for 1GB - 2GB
 PAGING_PD2      equ 0x14000     ; PD for 2GB - 3GB
 PAGING_PD3      equ 0x15000     ; PD for 3GB - 4GB
+PAGING_PT0      equ 0x16000     ; PT for 0MB - 2MB (split for KASLR)
 
 ; -----------------------------------------------------------------------------
 ; Stage2 load size
@@ -97,7 +98,7 @@ BOOT_INFO_E820_ADDR  equ 0x7000     ; dq: physical address of E820 entries
 BOOT_INFO_E820_COUNT equ 0x7008     ; dd: number of E820 entries
 BOOT_INFO_DRIVE      equ 0x700C     ; dd: boot drive number
 BOOT_INFO_FEATURES   equ 0x7010     ; dd: CPU feature flags
-BOOT_INFO_RESERVED   equ 0x7014     ; dd: reserved/padding
+BOOT_INFO_KASLR_PHYS equ 0x7014     ; dd: physical address of kernel under KASLR
 BOOT_INFO_ACPI_RSDP  equ 0x7018     ; dq: ACPI RSDP physical address
 BOOT_INFO_FB_ADDR    equ 0x7020     ; dq: framebuffer physical address
 BOOT_INFO_FB_WIDTH   equ 0x7028     ; dd: framebuffer width
