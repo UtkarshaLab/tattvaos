@@ -151,6 +151,54 @@ longmode_64:
     mov rsp, STACK_LONG             ; 64-bit stack pointer
 
     ; -------------------------------------------------------------------------
+    ; STEP 6.5: KASLR - Randomize kernel physical base address
+    ; -------------------------------------------------------------------------
+    push rax
+    push rbx
+    push rcx
+    push rdx
+
+    ; Check if RDRAND is supported (CPUID.01H:ECX.30)
+    mov eax, 1
+    cpuid
+    bt ecx, 30
+    jnc .use_rdtsc
+
+    ; RDRAND is supported, try to generate a hardware random number
+    rdrand eax
+    jc .have_rand
+
+.use_rdtsc:
+    ; Fallback to RDTSC for pseudo-randomness
+    rdtsc                           ; EDX:EAX = TSC
+    xor eax, edx
+
+.have_rand:
+    ; Constrain page index to 2MB - 16MB range
+    ; 2MB = 512 pages, 16MB = 4096 pages. Range is 3584 pages.
+    xor edx, edx
+    mov ecx, 3584
+    div ecx                         ; EDX = random % 3584
+    add edx, 512                    ; EDX = page index (512 to 4095)
+    shl rdx, 12                     ; RDX = page_index * 4096 (phys_dest)
+
+    ; Store physical kernel address in BootInfo (BOOT_INFO_ADDR + 20)
+    mov [BOOT_INFO_ADDR + 20], edx
+
+    ; Print diagnostic message: msg_kaslr_reloc followed by address
+    mov rsi, msg_kaslr_reloc
+    call uart_print_64
+    mov rax, rdx
+    call uart_print_hex64
+    mov rsi, msg_crlf
+    call uart_print_64
+
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+
+    ; -------------------------------------------------------------------------
     ; STEP 7: Enable AVX via XSETBV if supported
     ; CR4.OSXSAVE must be set first, then XSETBV sets XCR0
     ; -------------------------------------------------------------------------
@@ -183,12 +231,33 @@ longmode_64:
 
     ; -------------------------------------------------------------------------
     ; STEP 9: Load and jump to kernel
-    ; Copy kernel from real-mode temp buffer (0x20000) to 1MB mark (0x100000)
+    ; Copy kernel from real-mode temp buffer (0x20000) to randomized physical address
     ; -------------------------------------------------------------------------
     mov rsi, msg_kernel_load
     call uart_print_64
 
-    call kernel_load                ; copy kernel from KERNEL_TEMP → KERNEL_LOAD
+    mov rdi, [BOOT_INFO_ADDR + 20]  ; load randomized physical address
+    call kernel_load                ; copy kernel from KERNEL_TEMP → phys_dest
+
+    ; Update page table mapping: virtual 1MB to 2MB maps to phys_dest
+    mov rdi, PAGING_PT0 + 256 * 8   ; pointer to entry 256 of PT0
+    mov rbx, [BOOT_INFO_ADDR + 20]  ; load phys_dest
+    mov rcx, 256                    ; 256 entries (1MB)
+
+.update_kaslr_page_table:
+    mov rax, rbx
+    or rax, 0x03                    ; present + read/write
+    mov [rdi], rax
+    mov dword [rdi + 4], 0          ; NX=0 (executable)
+    
+    add rbx, 0x1000                 ; next physical page (4KB)
+    add rdi, 8                      ; next page table entry
+    dec rcx
+    jnz .update_kaslr_page_table
+
+    ; Flush TLB by reloading CR3
+    mov rax, cr3
+    mov cr3, rax
 
     ; Copy initrd to 32MB if loaded
     xor rax, rax
@@ -304,6 +373,8 @@ longmode_64:
 ; =============================================================================
 msg_longmode_ok:    db "Long mode OK", 0x0D, 0x0A, 0
 msg_kernel_load:    db "Kernel... ", 0
+msg_kaslr_reloc:    db "KASLR: Kernel physically relocated to ", 0
+msg_crlf:           db 0x0D, 0x0A, 0
 msg_kernel_ok:      db "OK", 0x0D, 0x0A, 0
 msg_ulf_err_magic:  db "FAIL (Bad Magic)", 0x0D, 0x0A, 0
 msg_ulf_err_size:   db "FAIL (Bad Size)", 0x0D, 0x0A, 0
