@@ -153,6 +153,7 @@ mm_init:
     mov rsi, 1024 * 4096            ; 4MB size
     call heap_init
     call page_list_init
+    call numa_detect_init
     call swap_init
     call kswapd_init
     call heap_transition
