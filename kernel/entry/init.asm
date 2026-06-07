@@ -128,6 +128,12 @@ mm_init:
     sub rsi, 0x100000               ; kernel size
     call virt_mark_global_range
 
+    ; 1b. Mark kernel code segment as read-only for write protection
+    mov rdi, kernel_text_start
+    mov rsi, kernel_text_end
+    sub rsi, rdi                    ; kernel code size
+    call virt_mark_read_only_range
+
     ; 2. Mark physical allocator bitmap as global
     mov rdi, [phys_state + phys_state_t.bitmap_addr]
     mov rsi, [phys_state + phys_state_t.bitmap_size]
