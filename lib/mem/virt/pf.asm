@@ -54,6 +54,8 @@ extern swap_free_slot
 extern page_list_add_active
 extern phys_state
 extern zswap_decompress_and_free
+extern kernel_stack_guard
+extern kernel_panic
 
 ; -----------------------------------------------------------------------------
 ; page_fault_isr — Low-level assembly entry point for Vector 14 (#PF)
@@ -155,6 +157,13 @@ virt_page_fault_handler:
     mov r12, rdi                    ; R12 = vaddr
     mov r13, rsi                    ; R13 = error_code
     mov r14, rdx                    ; R14 = original RSP
+
+    ; Check if faulting address is within the kernel stack guard page
+    mov rax, r12
+    and rax, -4096
+    mov rcx, kernel_stack_guard
+    cmp rax, rcx
+    je .kernel_stack_overflow
 
     ; Check if it is a swap fault (Non-Present fault with PAGE_SWAPPED set in PTE)
     test r13, 1                     ; present fault (bit 0 set)?
@@ -367,6 +376,27 @@ virt_page_fault_handler:
     pop r12
     pop rbx
     ret
+
+.kernel_stack_overflow:
+    ; Print stack overflow diagnostic to UART
+    mov rsi, msg_stack_overflow_panic
+    call uart_print_str
+    
+    ; Print faulting address
+    mov rax, r12
+    call uart_print_hex64
+    
+    mov rsi, msg_pf_details_end
+    call uart_print_str
+    
+    ; Call kernel_panic with reason string and RIP of crash
+    mov rdi, msg_stack_overflow_reason
+    mov rsi, [rsp + 160]            ; RIP of crash
+    call kernel_panic
+    cli
+.halt:
+    hlt
+    jmp .halt
 
 ; -----------------------------------------------------------------------------
 ; virt_handle_ondemand — allocates, mock-loads, and maps an on-demand page
@@ -782,6 +812,8 @@ msg_pf_data:            db "Data Access", 0
 msg_pf_instruction:     db "Instruction Fetch", 0
 msg_comma_space:        db ", ", 0
 msg_pf_details_end:     db ")", 0x0D, 0x0A, 0
+msg_stack_overflow_panic:   db "KERNEL PANIC: Stack Overflow detected! Page fault in kernel stack guard page at ", 0
+msg_stack_overflow_reason:  db "Double Fault / Kernel Stack Overflow", 0
 
 msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
 
