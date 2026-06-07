@@ -56,10 +56,15 @@ bsp_cpu_local:
     .arena       dq 0               ; thread-local/core-local arena pointer (offset 24)
 
 ; -----------------------------------------------------------------------------
-; Kernel Stack allocation
+; Kernel Stack allocation with unmapped guard page
 ; -----------------------------------------------------------------------------
 section .bss
-align 16
+align 4096
+global kernel_stack_guard
+kernel_stack_guard:
+    resb 4096                       ; 4KB stack guard page
+align 4096
 kernel_stack_bottom:
     resb 16384                      ; 16KB stack allocation
 kernel_stack_top:
+
