@@ -44,6 +44,10 @@ extern numa_get_node_by_phys
 extern numa_detect_init
 extern numa_get_distance
 extern uart_print_dec
+extern numa_local_bitmaps_active
+extern numa_nodes
+extern phys_alloc_page_node
+extern phys_alloc_pages_node
 
 extern mtrr_supported
 extern mtrr_get_vcnt
@@ -3372,6 +3376,7 @@ test_ctor:
 
     push r12
     push r13
+    push r14
 
     xor r12, r12                    ; r12 = index i = 0
 .loop_print:
@@ -3497,6 +3502,86 @@ test_ctor:
     cmp rax, 255
     jne .numa_fail_distance_pop
 
+    ; 6. Verify Node-Local Bitmaps Active
+    mov rax, [numa_local_bitmaps_active]
+    test rax, rax
+    jz .numa_fail_bitmaps_init_pop
+
+    ; 7. Print Node-Local Bitmap Info
+    mov rsi, msg_numa_local_info_header
+    call uart_print_str
+
+    xor r12, r12                    ; r12 = index J = 0
+.loop_node_info:
+    mov rcx, [numa_node_count]
+    cmp r12, rcx
+    jae .test_numa_allocation
+
+    ; Print "  Node "
+    mov rsi, msg_numa_node_prefix
+    call uart_print_str
+    mov rax, r12
+    call uart_print_dec
+
+    ; Print " Bitmap: Base=0x"
+    mov rsi, msg_numa_node_bmp_base
+    call uart_print_str
+
+    mov rax, r12
+    imul rax, numa_node_t_size
+    lea r13, [numa_nodes + rax]     ; R13 = node descriptor pointer
+
+    mov rax, [r13 + numa_node_t.bitmap_addr]
+    call uart_print_hex64
+
+    ; Print " Size=0x"
+    mov rsi, msg_numa_node_bmp_size
+    call uart_print_str
+    mov rax, [r13 + numa_node_t.bitmap_size]
+    call uart_print_hex64
+
+    ; Print " FreePages="
+    mov rsi, msg_numa_node_bmp_free
+    call uart_print_str
+    mov rax, [r13 + numa_node_t.free_pages]
+    call uart_print_dec
+
+    mov rsi, msg_crlf
+    call uart_print_str
+
+    inc r12
+    jmp .loop_node_info
+
+.test_numa_allocation:
+    ; 8. Test allocate page from Node 0
+    xor rdi, rdi                    ; target node 0
+    call phys_alloc_page_node
+    test rax, rax
+    jz .numa_fail_alloc_node_pop
+    mov r14, rax                    ; save allocated address in R14
+
+    ; Verify node affinity of returned address
+    mov rdi, r14
+    call numa_get_node_by_phys      ; RAX = Node ID
+    test rax, rax
+    jnz .numa_fail_node_affinity_pop
+
+    ; Free the page
+    mov rdi, r14
+    call phys_free_page
+
+    ; 9. Test fallback lookup for invalid node (99)
+    mov rdi, 99
+    call phys_alloc_page_node
+    test rax, rax
+    jz .numa_fail_fallback_alloc_pop
+    mov r14, rax
+
+    ; Free fallback page
+    mov rdi, r14
+    call phys_free_page
+
+    pop r14
     pop r13
     pop r12
 
@@ -3511,6 +3596,7 @@ test_ctor:
     jmp .panic
 
 .numa_fail_lookup_pop:
+    pop r14
     pop r13
     pop r12
 .numa_fail_lookup:
@@ -3519,10 +3605,47 @@ test_ctor:
     jmp .panic
 
 .numa_fail_distance_pop:
+    pop r14
     pop r13
     pop r12
 .numa_fail_distance_bounds:
     mov rsi, msg_numa_fail_dist_bounds_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_bitmaps_init_pop:
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_bitmaps_init:
+    mov rsi, msg_numa_fail_bmp_init_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_alloc_node_pop:
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_alloc_node:
+    mov rsi, msg_numa_fail_alloc_node_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_node_affinity_pop:
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_node_affinity:
+    mov rsi, msg_numa_fail_affinity_str
+    call uart_print_str
+    jmp .panic
+
+.numa_fail_fallback_alloc_pop:
+    pop r14
+    pop r13
+    pop r12
+.numa_fail_fallback_alloc:
+    mov rsi, msg_numa_fail_fallback_str
     call uart_print_str
     jmp .panic
 
@@ -4994,8 +5117,8 @@ msg_memmove_fail_alloc_str:          db "Failure: Could not allocate memory for 
 msg_memmove_fail_ret_str:            db "Failure: memmove did not return the destination pointer.", 0x0D, 0x0A, 0
 msg_memmove_fail_data_str:           db "Failure: memmove did not copy/shift the data payload correctly.", 0x0D, 0x0A, 0
 
-msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT/SLIT Parsing Test...", 0x0D, 0x0A, 0
-msg_numa_test_passed:           db "VMM NUMA ACPI SRAT/SLIT Parsing Test PASSED!", 0x0D, 0x0A, 0
+msg_numa_test_start:            db "Running VMM NUMA ACPI SRAT/SLIT Parsing & Local Bitmaps Test...", 0x0D, 0x0A, 0
+msg_numa_test_passed:           db "VMM NUMA ACPI SRAT/SLIT Parsing & Local Bitmaps Test PASSED!", 0x0D, 0x0A, 0
 msg_numa_ranges_found:          db "NUMA Memory Ranges found in SRAT:", 0x0D, 0x0A, 0
 msg_numa_range_base:            db "  Range base: 0x", 0
 msg_numa_range_len:             db "  length: 0x", 0
@@ -5005,9 +5128,17 @@ msg_numa_matrix_header:        db "NUMA Node Distance Matrix:", 0x0D, 0x0A, 0
 msg_numa_node_prefix:          db "  Node ", 0
 msg_numa_node_arrow:           db " -> ", 0
 msg_numa_node_colon:           db ": ", 0
+msg_numa_local_info_header:  db "NUMA Node-Local Bitmap Info:", 0x0D, 0x0A, 0
+msg_numa_node_bmp_base:     db " Bitmap: Base=0x", 0
+msg_numa_node_bmp_size:     db " Size=0x", 0
+msg_numa_node_bmp_free:     db " FreePages=", 0
 msg_numa_fail_count_str:        db "Failure: NUMA range count is 0.", 0x0D, 0x0A, 0
 msg_numa_fail_lookup_str:       db "Failure: NUMA Node ID lookup for out-of-bounds address did not return 0.", 0x0D, 0x0A, 0
 msg_numa_fail_dist_bounds_str: db "Failure: NUMA distance out-of-bounds check did not return 255.", 0x0D, 0x0A, 0
+msg_numa_fail_bmp_init_str:  db "Failure: Node-Local bitmaps not initialized or active flag is 0.", 0x0D, 0x0A, 0
+msg_numa_fail_alloc_node_str:db "Failure: phys_alloc_page_node returned 0 for Node 0.", 0x0D, 0x0A, 0
+msg_numa_fail_affinity_str:  db "Failure: Allocated page Node ID does not match requested Node ID.", 0x0D, 0x0A, 0
+msg_numa_fail_fallback_str:  db "Failure: Fallback allocation for out-of-bounds node 99 returned 0.", 0x0D, 0x0A, 0
 
 
 
