@@ -191,6 +191,15 @@ global free_list_free
 free_list_free:
     test rdi, rdi
     jz .done
+
+    ; Zero out the payload memory before freeing
+    push rdi
+    mov rax, rdi
+    sub rax, heap_block_t_size
+    mov rsi, [rax + heap_block_t.size] ; RSI = payload size
+    ; RDI is already the payload pointer
+    call memzero
+    pop rdi
     
     ; Get pointer to block header
     sub rdi, heap_block_t_size      ; RDI = block header pointer

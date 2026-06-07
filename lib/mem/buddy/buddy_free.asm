@@ -72,6 +72,23 @@ buddy_free:
     ; Get order (lower bits of metadata)
     and r13, 0x0F                   ; R13 = current order (O)
 
+    ; Zero out the buddy block payload before coalescing/freeing
+    push rdi
+    push rsi
+    push rcx
+    push rdx
+    
+    mov rdi, r12                    ; RDI = block address to zero
+    mov rcx, r13                    ; RCX = order (O)
+    mov rsi, 4096
+    shl rsi, cl                     ; RSI = 4096 << O (size in bytes)
+    call memzero
+    
+    pop rdx
+    pop rcx
+    pop rsi
+    pop rdi
+
 .coalesce_loop:
     cmp r13, 11
     jae .loop_done                  ; if order >= 11, cannot coalesce further
