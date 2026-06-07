@@ -81,7 +81,7 @@ paging_verify:
     jne .fail_pdpt_base
 
     ; -------------------------------------------------------------------------
-    ; Check 3: PD0[0] maps physical 0x000000 as 2MB huge page
+    ; Check 3: PD0[0] maps physical 0x000000 (as huge page or split page table)
     ; -------------------------------------------------------------------------
     mov edi, PAGING_PD0
     mov eax, [edi]                  ; PD0[0]
@@ -90,13 +90,40 @@ paging_verify:
     jz .fail_pd_present
 
     test eax, PAGE_HUGE
-    jz .fail_pd_huge
+    jz .verify_split_pt             ; if not huge, check if split page table
 
-    ; base should be 0x000000 | flags
+    ; Huge page validation: base should be 0x000000
     mov ebx, eax
     and ebx, 0xFFE00000             ; mask to 2MB boundary
     cmp ebx, 0x000000
     jne .fail_pd_base
+    jmp .check3_done
+
+.verify_split_pt:
+    ; Split page table validation: base should be PAGING_PT0
+    mov ebx, eax
+    and ebx, 0xFFFFF000             ; mask flags
+    cmp ebx, PAGING_PT0
+    jne .fail_pd_base
+
+    ; Verify PT0[0] maps physical 0x000000
+    mov edi, PAGING_PT0
+    mov eax, [edi]                  ; PT0[0]
+    test eax, PAGE_PRESENT
+    jz .fail_pd_present
+    and eax, 0xFFFFF000
+    cmp eax, 0x000000
+    jne .fail_pd_base
+
+    ; Verify PT0[256] maps physical 0x100000 (1MB)
+    mov eax, [edi + 256 * 8]        ; PT0[256]
+    test eax, PAGE_PRESENT
+    jz .fail_pd_present
+    and eax, 0xFFFFF000
+    cmp eax, 0x100000
+    jne .fail_pd_base
+
+.check3_done:
 
     ; -------------------------------------------------------------------------
     ; Check 4: PD0[1] maps physical 0x200000
