@@ -3630,7 +3630,132 @@ test_ctor:
     ; NUMA Test PASSED!
     mov rsi, msg_numa_test_passed
     call uart_print_str
+    jmp .smep_smap_test
+
+.smep_smap_test:
+    ; -------------------------------------------------------------
+    ; SMEP/SMAP Protection Test
+    ; -------------------------------------------------------------
+    mov rsi, msg_smep_smap_test_start
+    call uart_print_str
+
+    ; 1. Allocate a physical page for user mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .smep_smap_fail_alloc
+    mov r12, rax                    ; R12 = user page physical address
+
+    ; 2. Create a VMA for user space test address
+    ; start=0x40000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_USER (0x0B)
+    mov rdi, 0x40000000
+    mov rsi, 4096
+    mov rdx, 0x0B                   ; VMA_READ | VMA_WRITE | VMA_USER
+    call vma_create
+    test rax, rax
+    jz .smep_smap_fail_vma
+    mov r13, rax                    ; R13 = VMA pointer
+
+    ; 3. Map user space address
+    mov rdi, 0x40000000
+    mov rsi, r12
+    mov rdx, 0x07                   ; PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER
+    call virt_map
+    test rax, rax
+    jz .smep_smap_fail_map
+
+    ; 4. Test copy_to_user
+    mov rdi, 0x40000000             ; user destination
+    mov rsi, msg_smep_smap_test_data ; kernel source
+    mov rdx, 20                     ; length of msg_smep_smap_test_data ("SMAP_TEST_SIGNATURE" + null = 20)
+    call copy_to_user
+    test rax, rax
+    jz .smep_smap_fail_copy_to
+
+    ; 5. Test copy_from_user
+    mov rdi, smep_smap_test_buf     ; kernel destination buffer
+    mov rsi, 0x40000000             ; user source
+    mov rdx, 20
+    call copy_from_user
+    test rax, rax
+    jz .smep_smap_fail_copy_from
+
+    ; 6. Verify data integrity
+    mov rsi, smep_smap_test_buf
+    mov rdi, msg_smep_smap_test_data
+    mov rdx, 20
+    call memcmp
+    test rax, rax
+    jnz .smep_smap_fail_data
+
+    ; Clean up
+    mov rdi, 0x40000000
+    call virt_unmap
+
+    mov rdi, r12
+    call phys_free_page
+
+    mov rdi, r13
+    call vma_destroy
+
+    ; SMEP/SMAP Test PASSED!
+    mov rsi, msg_smep_smap_test_passed
+    call uart_print_str
+
     jmp .idle
+
+.smep_smap_fail_alloc:
+    mov rsi, msg_smep_smap_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.smep_smap_fail_vma:
+    mov rdi, r12
+    call phys_free_page
+    mov rsi, msg_smep_smap_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.smep_smap_fail_map:
+    mov rdi, r12
+    call phys_free_page
+    mov rdi, r13
+    call vma_destroy
+    mov rsi, msg_smep_smap_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.smep_smap_fail_copy_to:
+    mov rdi, 0x40000000
+    call virt_unmap
+    mov rdi, r12
+    call phys_free_page
+    mov rdi, r13
+    call vma_destroy
+    mov rsi, msg_smep_smap_fail_copy_to_str
+    call uart_print_str
+    jmp .panic
+
+.smep_smap_fail_copy_from:
+    mov rdi, 0x40000000
+    call virt_unmap
+    mov rdi, r12
+    call phys_free_page
+    mov rdi, r13
+    call vma_destroy
+    mov rsi, msg_smep_smap_fail_copy_from_str
+    call uart_print_str
+    jmp .panic
+
+.smep_smap_fail_data:
+    mov rdi, 0x40000000
+    call virt_unmap
+    mov rdi, r12
+    call phys_free_page
+    mov rdi, r13
+    call vma_destroy
+    mov rsi, msg_smep_smap_fail_data_str
+    call uart_print_str
+    jmp .panic
 
 .numa_fail_count:
     mov rsi, msg_numa_fail_count_str
@@ -5210,6 +5335,20 @@ msg_numa_fail_affinity_str:  db "Failure: Allocated page Node ID does not match 
 msg_numa_fail_fallback_str:  db "Failure: Fallback allocation for out-of-bounds node 99 returned 0.", 0x0D, 0x0A, 0
 msg_numa_fail_sim_oom_alloc_str: db "Failure: Fallback allocation under simulated OOM returned 0.", 0x0D, 0x0A, 0
 msg_numa_fail_sim_oom_affinity_str: db "Failure: Fallback allocation under simulated OOM did not allocate from adjacent Node 1.", 0x0D, 0x0A, 0
+
+msg_smep_smap_test_start:      db "Running VMM SMEP/SMAP Protection Test...", 0x0D, 0x0A, 0
+msg_smep_smap_test_passed:     db "VMM SMEP/SMAP Protection Test PASSED!", 0x0D, 0x0A, 0
+msg_smep_smap_test_data:       db "SMAP_TEST_SIGNATURE", 0
+msg_smep_smap_fail_alloc_str:  db "Failure: Could not allocate user page.", 0x0D, 0x0A, 0
+msg_smep_smap_fail_vma_str:    db "Failure: Could not create user VMA.", 0x0D, 0x0A, 0
+msg_smep_smap_fail_map_str:    db "Failure: Could not map user page.", 0x0D, 0x0A, 0
+msg_smep_smap_fail_copy_to_str: db "Failure: copy_to_user returned error or failed.", 0x0D, 0x0A, 0
+msg_smep_smap_fail_copy_from_str: db "Failure: copy_from_user returned error or failed.", 0x0D, 0x0A, 0
+msg_smep_smap_fail_data_str:   db "Failure: Data read back from user page does not match signature.", 0x0D, 0x0A, 0
+
+section .bss
+align 8
+smep_smap_test_buf:            resb 32
 
 
 
