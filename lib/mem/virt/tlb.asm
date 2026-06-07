@@ -352,4 +352,84 @@ virt_mark_read_only_range:
     pop rbx
     ret
 
+; -----------------------------------------------------------------------------
+; virt_mark_nx_range — walks page tables and sets PAGE_NX (bit 63) on a range
+; Input:
+;   RDI = starting virtual address
+;   RSI = range size in bytes
+; Output: none
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8
+; -----------------------------------------------------------------------------
+global virt_mark_nx_range
+virt_mark_nx_range:
+    push rbx
+    push r12
+    push r13
+
+    test rsi, rsi
+    jz .nx_done
+
+    ; Align start virtual address down to 4KB
+    mov r12, rdi
+    and r12, -4096                  ; R12 = current virtual address
+    
+    ; Calculate end address
+    mov r13, rdi
+    add r13, rsi                    ; R13 = end virtual address
+
+.nx_loop:
+    cmp r12, r13
+    jae .nx_done
+
+    ; Walk page table using current virtual address
+    mov rdi, r12
+    xor rsi, rsi                    ; use current CR3
+    call virt_walk_table            ; RAX = PTE address, RDX = level
+    test rax, rax
+    jz .nx_not_mapped
+
+    ; Set the No-Execute bit (bit 63: PAGE_NX) in the entry
+    mov r8, PAGE_NX
+    or qword [rax], r8
+
+    ; Check resolved level to know how much to advance
+    cmp rdx, 2                      ; 1GB super page
+    je .nx_advance_1gb
+    cmp rdx, 3                      ; 2MB huge page
+    je .nx_advance_2mb
+
+.nx_advance_4kb:
+    add r12, 4096
+    jmp .nx_loop
+
+.nx_advance_2mb:
+    mov rax, r12
+    and rax, 0x1FFFFF               ; offset in 2MB page
+    mov rcx, 0x200000
+    sub rcx, rax                    ; remaining bytes in this 2MB page
+    add r12, rcx
+    jmp .nx_loop
+
+.nx_advance_1gb:
+    mov rax, r12
+    and rax, 0x3FFFFFFF             ; offset in 1GB page
+    mov rcx, 0x40000000
+    sub rcx, rax                    ; remaining bytes in this 1GB page
+    add r12, rcx
+    jmp .nx_loop
+
+.nx_not_mapped:
+    ; Not mapped, just advance by 4KB to check next page
+    add r12, 4096
+    jmp .nx_loop
+
+.nx_done:
+    ; Flush the TLB to make the execute protection active immediately
+    call tlb_flush_all_global
+
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
 %endif ; LIB_MEM_VIRT_TLB_ASM
