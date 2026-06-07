@@ -28,7 +28,12 @@ kernel_load:
 
     ; Source: KERNEL_TEMP loaded by BIOS int 0x13 in real mode
     mov rsi, KERNEL_TEMP            ; source: 0x20000 (KERNEL_TEMP)
-    mov rdi, KERNEL_LOAD            ; destination: 0x100000 (1MB)
+    
+    ; If RDI is non-zero, use it as the destination address; otherwise fallback to KERNEL_LOAD
+    test rdi, rdi
+    jnz .use_dest
+    mov rdi, KERNEL_LOAD            ; fallback: 0x100000 (1MB)
+.use_dest:
     
     ; Copy 64KB (sufficient for early unikernel binaries)
     mov rcx, 65536 / 8              ; number of quadwords (8192 qwords = 64KB)
