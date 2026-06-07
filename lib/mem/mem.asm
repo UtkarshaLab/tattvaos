@@ -18,6 +18,7 @@
 %include "lib/mem/ops/memzero.asm"
 %include "lib/mem/ops/memcmp.asm"
 %include "lib/mem/ops/memmove.asm"
+%include "lib/mem/ops/user_copy.asm"
 %include "lib/mem/phys/map.asm"
 %include "lib/mem/phys/bitmap.asm"
 %include "lib/mem/phys/phys.asm"
