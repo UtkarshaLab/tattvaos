@@ -772,6 +772,16 @@ phys_free_pages:
     push r10
     push r11
 
+    ; Zero out the physical pages being freed
+    push rdi
+    push rsi
+    mov rcx, rsi                    ; RCX = page count
+    shl rsi, 12                     ; RSI = size in bytes (N * 4096)
+    ; RDI is already the starting physical address
+    call memzero
+    pop rsi
+    pop rdi
+
     ; Check if NUMA active
     mov rax, [numa_local_bitmaps_active]
     test rax, rax
