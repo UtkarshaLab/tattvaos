@@ -97,6 +97,23 @@ pool_free:
     pop r9
     pop r8
 
+    ; Zero out the slot payload (excluding the first 8 bytes)
+    mov rcx, [rdi + pool_t.obj_size]
+    cmp rcx, 8
+    jbe .no_zero_pool
+
+    push rdi
+    push rsi
+    push rcx
+    lea rdi, [rsi + 8]              ; RDI = start of rest of slot
+    sub rcx, 8                      ; RCX = size of rest of slot
+    mov rsi, rcx                    ; RSI = size
+    call memzero
+    pop rcx
+    pop rsi
+    pop rdi
+
+.no_zero_pool:
     ; Load current free_head and free_tag to expected registers RDX:RAX
     mov rax, [rdi + pool_t.free_head]
     mov rdx, [rdi + pool_t.free_tag]

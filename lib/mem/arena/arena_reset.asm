@@ -28,10 +28,31 @@ arena_reset:
     test rdi, rdi
     jz .exit
 
-    ; Reset current bump pointer to the start address
-    mov rax, [rdi + arena_t.start]
-    mov [rdi + arena_t.current], rax
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
 
+    mov rbx, rdi                    ; RBX = arena pointer
+    mov rdi, [rbx + arena_t.start]  ; RDI = start address
+    mov rsi, [rbx + arena_t.current]; RSI = current address
+    sub rsi, rdi                    ; RSI = size used
+    jz .done_zero
+
+    call memzero
+
+.done_zero:
+    mov rax, [rbx + arena_t.start]
+    mov [rbx + arena_t.current], rax
+
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
 .exit:
     ret
 
