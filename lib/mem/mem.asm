@@ -34,6 +34,8 @@
 %include "lib/mem/buddy/buddy.asm"
 %include "lib/mem/arena/arena.asm"
 %include "lib/mem/pool/pool.asm"
+%include "lib/mem/numa/numa.asm"
+%include "lib/mem/numa/numa_detect.asm"
 
 
 %include "lib/mem/virt/pgtable.asm"
