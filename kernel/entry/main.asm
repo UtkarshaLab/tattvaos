@@ -3179,7 +3179,194 @@ test_ctor:
     ; memcmp Test PASSED!
     mov rsi, msg_memcmp_test_passed
     call uart_print_str
+    jmp .run_memmove_test
+
+.run_memmove_test:
+    mov rsi, msg_memmove_test_start
+    call uart_print_str
+
+    push r12
+
+    ; Allocate Buffer (128 bytes)
+    mov rdi, 128
+    call heap_alloc
+    test rax, rax
+    jz .memmove_fail_alloc
+    mov r12, rax                    ; R12 = working buffer
+
+    ; -------------------------------------------------------------------------
+    ; Test Case A: Forward copy, non-overlapping
+    ; -------------------------------------------------------------------------
+    ; Reset buffer
+    xor rcx, rcx
+.reset_a:
+    mov [r12 + rcx], cl
+    inc rcx
+    cmp rcx, 128
+    jb .reset_a
+
+    mov rdi, r12
+    add rdi, 64                     ; RDI = dest = R12 + 64
+    mov rsi, r12                    ; RSI = src = R12 + 0
+    mov rdx, 32                     ; RDX = size = 32
+    call memmove
+
+    ; Verify return value
+    mov rbx, r12
+    add rbx, 64
+    cmp rax, rbx
+    jne .memmove_fail_ret
+
+    ; Verify payload at dest
+    xor rcx, rcx
+.verify_a:
+    mov al, [r12 + 64 + rcx]
+    cmp al, cl
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 32
+    jb .verify_a
+
+    ; -------------------------------------------------------------------------
+    ; Test Case B: Reverse copy, overlapping (Dest > Src)
+    ; -------------------------------------------------------------------------
+    ; Reset buffer
+    xor rcx, rcx
+.reset_b:
+    mov [r12 + rcx], cl
+    inc rcx
+    cmp rcx, 128
+    jb .reset_b
+
+    mov rdi, r12
+    add rdi, 30                     ; RDI = dest = R12 + 30
+    mov rsi, r12
+    add rsi, 10                     ; RSI = src = R12 + 10
+    mov rdx, 40                     ; RDX = size = 40 (overlapping)
+    call memmove
+
+    ; Verify return value
+    mov rbx, r12
+    add rbx, 30
+    cmp rax, rbx
+    jne .memmove_fail_ret
+
+    ; Verify unchanged range [0..29]
+    xor rcx, rcx
+.verify_b_pre:
+    mov al, [r12 + rcx]
+    cmp al, cl
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 30
+    jb .verify_b_pre
+
+    ; Verify moved payload [30..69] from [10..49]
+    xor rcx, rcx
+.verify_b_payload:
+    mov al, [r12 + 30 + rcx]
+    mov r8b, cl
+    add r8b, 10
+    cmp al, r8b
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 40
+    jb .verify_b_payload
+
+    ; Verify unchanged range [70..127]
+    mov rcx, 70
+.verify_b_post:
+    mov al, [r12 + rcx]
+    cmp al, cl
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 128
+    jb .verify_b_post
+
+    ; -------------------------------------------------------------------------
+    ; Test Case C: Forward copy, overlapping (Dest < Src)
+    ; -------------------------------------------------------------------------
+    ; Reset buffer
+    xor rcx, rcx
+.reset_c:
+    mov [r12 + rcx], cl
+    inc rcx
+    cmp rcx, 128
+    jb .reset_c
+
+    mov rdi, r12
+    add rdi, 10                     ; RDI = dest = R12 + 10
+    mov rsi, r12
+    add rsi, 30                     ; RSI = src = R12 + 30
+    mov rdx, 40                     ; RDX = size = 40 (overlapping)
+    call memmove
+
+    ; Verify return value
+    mov rbx, r12
+    add rbx, 10
+    cmp rax, rbx
+    jne .memmove_fail_ret
+
+    ; Verify unchanged range [0..9]
+    xor rcx, rcx
+.verify_c_pre:
+    mov al, [r12 + rcx]
+    cmp al, cl
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 10
+    jb .verify_c_pre
+
+    ; Verify moved payload [10..49] from [30..69]
+    xor rcx, rcx
+.verify_c_payload:
+    mov al, [r12 + 10 + rcx]
+    mov r8b, cl
+    add r8b, 30
+    cmp al, r8b
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 40
+    jb .verify_c_payload
+
+    ; Verify unchanged range [50..127]
+    mov rcx, 50
+.verify_c_post:
+    mov al, [r12 + rcx]
+    cmp al, cl
+    jne .memmove_fail_data
+    inc rcx
+    cmp rcx, 128
+    jb .verify_c_post
+
+    ; Free buffer
+    mov rdi, r12
+    call heap_free
+
+    pop r12
+
+    ; memmove Test PASSED!
+    mov rsi, msg_memmove_test_passed
+    call uart_print_str
     jmp .idle
+
+.memmove_fail_alloc:
+    pop r12
+    mov rsi, msg_memmove_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.memmove_fail_ret:
+    pop r12
+    mov rsi, msg_memmove_fail_ret_str
+    call uart_print_str
+    jmp .panic
+
+.memmove_fail_data:
+    pop r12
+    mov rsi, msg_memmove_fail_data_str
+    call uart_print_str
+    jmp .panic
 
 .run_match_case:
     mov rdi, r12
@@ -4623,6 +4810,12 @@ msg_memcmp_test_passed:              db "VMM AVX2-Optimized memcmp Test PASSED!"
 msg_memcmp_fail_alloc_str:           db "Failure: Could not allocate memory for memcmp test buffers.", 0x0D, 0x0A, 0
 msg_memcmp_fail_match_str:           db "Failure: memcmp returned non-zero for identical memory blocks.", 0x0D, 0x0A, 0
 msg_memcmp_fail_mismatch_str:        db "Failure: memcmp did not calculate mismatch sign or magnitude correctly.", 0x0D, 0x0A, 0
+
+msg_memmove_test_start:              db "Running VMM AVX2-Optimized memmove Test...", 0x0D, 0x0A, 0
+msg_memmove_test_passed:             db "VMM AVX2-Optimized memmove Test PASSED!", 0x0D, 0x0A, 0
+msg_memmove_fail_alloc_str:          db "Failure: Could not allocate memory for memmove test buffer.", 0x0D, 0x0A, 0
+msg_memmove_fail_ret_str:            db "Failure: memmove did not return the destination pointer.", 0x0D, 0x0A, 0
+msg_memmove_fail_data_str:           db "Failure: memmove did not copy/shift the data payload correctly.", 0x0D, 0x0A, 0
 
 
 
