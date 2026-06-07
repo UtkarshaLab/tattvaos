@@ -159,6 +159,11 @@ mm_init:
     call kswapd_init
     call heap_transition
     call kmem_cache_init_all
+
+    ; 5. Unmap the kernel stack guard page to trap stack overflows
+    mov rdi, kernel_stack_guard
+    call virt_unmap
+
     ret
 
 
