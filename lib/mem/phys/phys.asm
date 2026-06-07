@@ -240,12 +240,31 @@ phys_init:
 .reserve_low_done:
     ; -----------------------------------------------------------------------------
     ; 9. Protect Kernel Code & Data (Subfeature 1.5)
-    ; Mark all pages from 1MB (0x100000) to kernel_end as reserved.
     ; -----------------------------------------------------------------------------
+    mov rdi, [boot_info_ptr]
+    mov eax, [rdi + 20]             ; EAX = KASLR physical start address
+    test eax, eax
+    jnz .kaslr_protect
+
+    ; Default/Fallback (No KASLR): protect 1MB to kernel_end
     mov rax, kernel_end
     add rax, 4095
     shr rax, 12                     ; RAX = kernel_end page index (exclusive)
-    mov rbx, 256                    ; start page index = 256 (1MB)
+    mov rbx, 256                    ; RBX = start page index = 256 (1MB)
+    jmp .reserve_kernel_loop
+
+.kaslr_protect:
+    ; KASLR Active: protect phys_dest to phys_dest + kernel_size
+    mov rbx, rax                    ; RBX = phys_dest (loaded in RAX/EAX)
+    shr rbx, 12                     ; RBX = start page index
+
+    mov rcx, kernel_end
+    sub rcx, 0x100000               ; RCX = kernel size in bytes
+    add rcx, 4095
+    shr rcx, 12                     ; RCX = kernel size in pages
+
+    mov rax, rbx
+    add rax, rcx                    ; RAX = end page index (exclusive)
 
 .reserve_kernel_loop:
     cmp rbx, rax
