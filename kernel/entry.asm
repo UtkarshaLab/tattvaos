@@ -43,6 +43,7 @@ kernel_text_start:
 %include "arch/x86_64/gdt.asm"
 %include "arch/x86_64/interrupts.asm"
 %include "lib/mem/mem.asm"
+%include "unet/core/link/net_link.asm"
 %include "lib/hw/ucpu/mtrr.asm"
 %include "lib/hw/ucpu/pat.asm"
 %include "drivers/gpu/fb.asm"
