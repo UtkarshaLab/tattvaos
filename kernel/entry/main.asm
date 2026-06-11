@@ -103,6 +103,8 @@ extern ipc_destroy_ring_buffer
 extern leak_tracker_init
 extern heap_leak_report
 extern leak_table
+extern uaf_init
+
 
 
 
@@ -4072,11 +4074,65 @@ test_ctor:
     cmp rax, 0
     jne .leak_fail_final
 
-    ; VMM Memory Leak Tracker Tests PASSED!
-    mov rsi, msg_leak_test_passed
+    jmp .uaf_test_start
+
+    ; =========================================================================
+    ; Use-After-Free (UAF) Trap Tests (Subfeature 19.2)
+    ; =========================================================================
+.uaf_test_start:
+    mov rsi, msg_uaf_test_start
     call uart_print_str
 
-    jmp .idle
+    ; Initialize UAF quarantine table
+    call uaf_init
+
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .uaf_fail_alloc
+    mov r12, rax                    ; R12 = physical page
+
+    ; 2. Map page to virtual address 0xB0000000 with present & writable permissions
+    mov rdi, 0xB0000000
+    mov rsi, r12
+    mov rdx, 0x03                   ; PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .uaf_fail_map
+
+    ; 3. Write data to make sure it is mapped and present
+    mov rdi, 0xB0000000
+    mov qword [rdi], 0xDEADBEEF12345678
+
+    ; 4. Unmap/Free the virtual page (calls uaf_quarantine_add internally)
+    mov rdi, 0xB0000000
+    call virt_unmap
+
+    mov rdi, r12
+    call phys_free_page             ; Free physical frame
+
+    ; 5. Read access from unmapped address 0xB0000000
+    ; This triggers a page fault, which queries the quarantine table,
+    ; prints "Use-After-Free detected at address 0x00000000B0000000! (UAF_TEST_SUCCESS)"
+    ; and panics.
+    mov rdi, 0xB0000000
+    mov rax, [rdi]                  ; should trigger UAF Trap and halt!
+
+    ; If we reach here, the trap failed!
+    mov rsi, msg_uaf_fail_trap
+    call uart_print_str
+    jmp .panic
+
+.uaf_fail_alloc:
+    mov rsi, msg_uaf_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.uaf_fail_map:
+    mov rsi, msg_uaf_fail_map_str
+    call uart_print_str
+    jmp .panic
+
 
 .leak_fail_initial:
     mov rsi, msg_leak_fail_initial
@@ -5884,6 +5940,12 @@ msg_leak_fail_alloc:            db "Failure: Could not allocate heap memory for 
 msg_leak_fail_count:            db "Failure: Leak tracker did not report exactly 1 leak after partial free.", 0x0D, 0x0A, 0
 msg_leak_fail_verify:           db "Failure: Logged leak pointer did not match the leaked block.", 0x0D, 0x0A, 0
 msg_leak_fail_final:            db "Failure: Leak tracker reported non-zero leaks after all blocks freed.", 0x0D, 0x0A, 0
+
+msg_uaf_test_start:             db "Running VMM Use-After-Free Trap Tests...", 0x0D, 0x0A, 0
+msg_uaf_fail_alloc_str:         db "Failure: Could not allocate physical page for UAF test.", 0x0D, 0x0A, 0
+msg_uaf_fail_map_str:           db "Failure: Could not map page for UAF test.", 0x0D, 0x0A, 0
+msg_uaf_fail_trap:              db "Failure: Access to freed memory did not trigger UAF Trap panic.", 0x0D, 0x0A, 0
+
 
 
 
