@@ -12,10 +12,14 @@
 
 [BITS 64]
 
-; VMA Flags (matching virt.asm & pf.asm)
-%ifndef VMA_FILE
+%ifndef VMA_READ
+VMA_READ        equ (1 << 0)
+VMA_WRITE       equ (1 << 1)
+VMA_EXEC        equ (1 << 2)
+VMA_USER        equ (1 << 3)
 VMA_FILE        equ (1 << 8)
 %endif
+
 
 ; Page Table Flags (matching pgtable.asm)
 PAGE_PRESENT    equ (1 << 0)
@@ -342,17 +346,17 @@ virt_handle_file_map:
     mov rdx, [r13 + vma_t.flags]    ; RDX = vma->flags
     xor rbx, rbx                    ; RBX = mapping flags
 
-    test rdx, 0x02                  ; VMA_WRITE (1 << 1)?
+    test rdx, VMA_WRITE
     jz .no_write
     or rbx, PAGE_WRITABLE
 .no_write:
 
-    test rdx, 0x08                  ; VMA_USER (1 << 3)?
+    test rdx, VMA_USER
     jz .no_user
     or rbx, PAGE_USER
 .no_user:
 
-    test rdx, 0x04                  ; VMA_EXEC (1 << 2)?
+    test rdx, VMA_EXEC
     jnz .is_exec
     mov rcx, PAGE_NX
     or rbx, rcx

@@ -103,6 +103,10 @@ vma_create:
     mov [rax + vma_t.end], r13
     mov [rax + vma_t.flags], r14
     mov qword [rax + vma_t.next], 0
+    mov qword [rax + vma_t.file_ptr], 0
+    mov qword [rax + vma_t.file_off], 0
+    mov qword [rax + vma_t.file_size], 0
+
 
     ; 3. Insert VMA into ascending address-sorted list
     mov rdx, [vma_list_head]
