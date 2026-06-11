@@ -352,6 +352,158 @@ thread_stack_free:
     hlt
     jmp .halt_canary
 
+; -----------------------------------------------------------------------------
+; is_valid_stack_address — checks if a pointer is a valid stack address
+; Input:
+;   RDI = address to check
+; Output:
+;   RAX = 1 if valid, 0 if not
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8
+; -----------------------------------------------------------------------------
+global is_valid_stack_address
+is_valid_stack_address:
+    ; 1. Must be 8-byte aligned
+    test rdi, 7
+    jnz .invalid
+    
+    ; 2. Check early kernel stack
+    extern kernel_stack_bottom
+    extern kernel_stack_top
+    mov rax, kernel_stack_bottom
+    cmp rdi, rax
+    jb .check_df_stack
+    mov rax, kernel_stack_top
+    cmp rdi, rax
+    jb .valid                       ; inside kernel stack!
+    
+.check_df_stack:
+    extern double_fault_stack_bottom
+    extern double_fault_stack_top
+    mov rax, double_fault_stack_bottom
+    cmp rdi, rax
+    jb .check_pf_stack
+    mov rax, double_fault_stack_top
+    cmp rdi, rax
+    jb .valid                       ; inside DF stack!
+    
+.check_pf_stack:
+    extern page_fault_stack_bottom
+    extern page_fault_stack_top
+    mov rax, page_fault_stack_bottom
+    cmp rdi, rax
+    jb .check_nmi_stack
+    mov rax, page_fault_stack_top
+    cmp rdi, rax
+    jb .valid                       ; inside PF stack!
+    
+.check_nmi_stack:
+    extern nmi_stack_bottom
+    extern nmi_stack_top
+    mov rax, nmi_stack_bottom
+    cmp rdi, rax
+    jb .check_vma_stacks
+    mov rax, nmi_stack_top
+    cmp rdi, rax
+    jb .valid                       ; inside NMI stack!
+    
+.check_vma_stacks:
+    ; Call vma_find
+    push rdi
+    call vma_find                   ; RAX = VMA pointer or 0
+    pop rdi
+    test rax, rax
+    jz .invalid
+    
+    ; Check if VMA is stack VMA
+    mov rcx, [rax + vma_t.flags]
+    test rcx, VMA_STACK
+    jz .invalid
+    
+.valid:
+    mov rax, 1
+    ret
+.invalid:
+    xor rax, rax
+    ret
+
+; -----------------------------------------------------------------------------
+; stack_trace_walk — prints a backtrace starting from RBP
+; Input:
+;   RDI = initial RBP (if 0, starts from current RBP)
+; Output: none
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9, R10
+; -----------------------------------------------------------------------------
+global stack_trace_walk
+stack_trace_walk:
+    push rbp
+    push rbx
+    push r12
+    push r13
+    
+    mov r12, rdi                    ; R12 = current RBP
+    test r12, r12
+    jnz .start_walk
+    
+    ; If RDI is 0, read current RBP (caller's RBP is RBP value before we pushed)
+    mov r12, [rsp + 24]             ; RSP + 24 contains the pushed RBP value!
+    
+.start_walk:
+    ; Print backtrace header
+    mov rsi, msg_backtrace_header
+    call uart_print_str
+    
+    mov r13, 0                      ; R13 = frame counter (max depth 20)
+    
+.walk_loop:
+    cmp r13, 20                     ; Max depth 20 frames
+    jae .done_walk
+    
+    ; 1. Check if current RBP is a valid stack address
+    mov rdi, r12
+    call is_valid_stack_address
+    test rax, rax
+    jz .done_walk                   ; invalid pointer, stop walking
+    
+    ; 2. Print frame index
+    mov rsi, msg_frame_prefix
+    call uart_print_str
+    
+    mov rdi, r13
+    call uart_print_hex64
+    
+    mov rsi, msg_frame_infix
+    call uart_print_str
+    
+    ; 3. Print return address: [R12 + 8]
+    ; First verify if R12 + 8 is also a valid stack address!
+    mov rdi, r12
+    add rdi, 8
+    call is_valid_stack_address
+    test rax, rax
+    jz .done_walk
+    
+    mov rdi, [r12 + 8]              ; RDI = RIP (return address)
+    call uart_print_hex64
+    
+    mov rsi, msg_newline
+    call uart_print_str
+    
+    ; 4. Update R12 = [R12] (next RBP)
+    mov r12, [r12]
+    
+    inc r13
+    jmp .walk_loop
+    
+.done_walk:
+    mov rsi, msg_backtrace_footer
+    call uart_print_str
+    
+    pop r13
+    pop r12
+    pop rbx
+    pop rbp
+    ret
+
 section .data
 
 align 8
@@ -360,6 +512,11 @@ msg_canary_error_infix1: db "! Expected: ", 0
 msg_canary_error_infix2: db " Found: ", 0
 msg_canary_error_reason: db "Stack canary corruption detected", 0
 msg_newline:             db 0x0D, 0x0A, 0
+
+msg_backtrace_header:    db 0x0D, 0x0A, "--- STACK BACKTRACE ---", 0x0D, 0x0A, 0
+msg_frame_prefix:        db "  [", 0
+msg_frame_infix:         db "] RIP: ", 0
+msg_backtrace_footer:    db "-----------------------", 0x0D, 0x0A, 0
 
 section .text
 
