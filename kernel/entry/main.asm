@@ -96,6 +96,11 @@ extern mock_file_destroy
 extern vma_map_file
 extern mmap_msync
 extern mmap_munmap
+extern virt_create_user_pml4
+extern ipc_share_frame
+extern ipc_create_ring_buffer
+extern ipc_destroy_ring_buffer
+
 
 
 
@@ -3861,11 +3866,181 @@ test_ctor:
     mov rdi, r12
     call mock_file_destroy
 
-    ; VMM Memory-Mapped Files (mmap) Tests PASSED!
-    mov rsi, msg_mmap_test_passed
+    jmp .ipc_test_start
+
+    ; =========================================================================
+    ; Shared Memory & IPC Primitives Tests (Section 18)
+    ; =========================================================================
+.ipc_test_start:
+    mov rsi, msg_ipc_test_start
+    call uart_print_str
+
+    ; -------------------------------------------------------------------------
+    ; 1. Test Shared Physical Frames (Subfeature 18.1)
+    ; -------------------------------------------------------------------------
+    ; Create a secondary User PML4
+    xor rdi, rdi                    ; 0 = read current CR3
+    call virt_create_user_pml4
+    test rax, rax
+    jz .ipc_fail_pml4
+    mov r12, rax                    ; R12 = secondary PML4 physical address
+
+    ; Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .ipc_fail_alloc
+    mov r13, rax                    ; R13 = physical page
+
+    ; Map it to 0x90000000 in current address space (CR3) with present & writable flags
+    mov rdi, 0x90000000
+    mov rsi, r13
+    mov rdx, 0x03                   ; PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .ipc_fail_map
+
+    ; Write test signature to 0x90000000
+    mov rdi, 0x90000000
+    mov rax, 0x5348415245445f4d     ; "SHARED_M"
+    mov [rdi], rax
+    mov rax, 0x454d4f52595f4f4b     ; "EMORY_OK"
+    mov [rdi + 8], rax
+
+    ; Share this page with the secondary PML4 at destination address 0x90000000
+    mov rdi, 0x90000000             ; vaddr_src
+    mov rsi, r12                    ; pml4_dest
+    mov rdx, 0x90000000             ; vaddr_dest
+    mov rcx, 0x03                   ; flags (PAGE_PRESENT | PAGE_WRITABLE)
+    call ipc_share_frame
+    test rax, rax
+    jz .ipc_fail_share
+
+    ; Temporarily switch CR3 to secondary PML4 to verify mapping
+    mov r14, cr3                    ; R14 = original CR3
+    mov cr3, r12                    ; switch to secondary PML4
+
+    ; Verify that 0x90000000 is readable and contains our signature
+    mov rdi, 0x90000000
+    mov rax, [rdi]
+    cmp rax, 0x5348415245445f4d     ; "SHARED_M"
+    jne .ipc_fail_shared_val
+    mov rax, [rdi + 8]
+    cmp rax, 0x454d4f52595f4f4b     ; "EMORY_OK"
+    jne .ipc_fail_shared_val
+
+    ; Switch back to original CR3
+    mov cr3, r14
+
+    ; Clean up the shared page from both address spaces
+    mov rdi, 0x90000000
+    call virt_unmap
+    
+    ; Switch to secondary PML4 to unmap it there as well
+    mov cr3, r12
+    mov rdi, 0x90000000
+    call virt_unmap
+    mov cr3, r14                    ; restore original CR3
+
+    ; Free the physical page frame
+    mov rdi, r13
+    call phys_free_page
+
+    ; Free the secondary PML4 physical page itself
+    mov rdi, r12
+    call phys_free_page
+
+    ; -------------------------------------------------------------------------
+    ; 2. Test Zero-Copy Ring Buffers (Subfeature 18.2)
+    ; -------------------------------------------------------------------------
+    ; Create a double-mapped ring buffer at 0xA0000000 of size 4096 (total 8192 bytes mapped)
+    mov rdi, 0xA0000000
+    mov rsi, 4096                   ; size N = 4096 (1 page)
+    mov rdx, 0x03                   ; VMA flags (VMA_READ | VMA_WRITE)
+    call ipc_create_ring_buffer
+    test rax, rax
+    jz .ipc_fail_ring_create
+
+    ; Write test data at the beginning of the first half (0xA0000000)
+    mov rdi, 0xA0000000
+    mov rax, 0x52494e475f425546     ; "RING_BUF"
+    mov [rdi], rax
+    mov rax, 0x4645525f444f5542     ; "FER_DOUB"
+    mov [rdi + 8], rax
+    mov rax, 0x4c455f4d41505f21     ; "LE_MAP_!"
+    mov [rdi + 16], rax
+
+    ; Read back from the second half at 0xA0001000 (offset 4096) and verify it's identical
+    mov rsi, 0xA0001000
+    mov rax, [rsi]
+    cmp rax, 0x52494e475f425546
+    jne .ipc_fail_ring_val
+    mov rax, [rsi + 8]
+    cmp rax, 0x4645525f444f5542
+    jne .ipc_fail_ring_val
+    mov rax, [rsi + 16]
+    cmp rax, 0x4c455f4d41505f21
+    jne .ipc_fail_ring_val
+
+    ; Write a value at offset 32 in the second half (0xA0001020)
+    mov qword [rsi + 32], 0x90ABCDEFAABBCCDD
+
+    ; Read it back from the first half at 0xA0000020 and verify it matches
+    mov rax, [rdi + 32]
+    cmp rax, 0x90ABCDEFAABBCCDD
+    jne .ipc_fail_ring_cross_val
+
+    ; Clean up the ring buffer
+    mov rdi, 0xA0000000
+    mov rsi, 4096
+    call ipc_destroy_ring_buffer
+
+    ; VMM Shared Memory & IPC Tests PASSED!
+    mov rsi, msg_ipc_test_passed
     call uart_print_str
 
     jmp .idle
+
+.ipc_fail_pml4:
+    mov rsi, msg_ipc_fail_pml4
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_alloc:
+    mov rsi, msg_ipc_fail_alloc
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_map:
+    mov rsi, msg_ipc_fail_map
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_share:
+    mov rsi, msg_ipc_fail_share
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_shared_val:
+    mov cr3, r14                    ; restore original CR3
+    mov rsi, msg_ipc_fail_shared_val
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_ring_create:
+    mov rsi, msg_ipc_fail_ring_create
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_ring_val:
+    mov rsi, msg_ipc_fail_ring_val
+    call uart_print_str
+    jmp .panic
+
+.ipc_fail_ring_cross_val:
+    mov rsi, msg_ipc_fail_ring_cross_val
+    call uart_print_str
+    jmp .panic
+
 
 .mmap_fail_create:
     mov rsi, msg_mmap_fail_create
@@ -5586,6 +5761,18 @@ msg_mmap_fail_not_cleared:      db "Failure: PAGE_DIRTY bit not cleared in PTE a
 msg_mmap_fail_backing:          db "Failure: Backing mock file block is null after msync.", 0x0D, 0x0A, 0
 msg_mmap_fail_backing_data:     db "Failure: backing mock file block data does not match synced RAM page.", 0x0D, 0x0A, 0
 msg_mmap_fail_unmap:            db "Failure: mmap_munmap returned error.", 0x0D, 0x0A, 0
+
+msg_ipc_test_start:             db "Running VMM Shared Memory & IPC Tests...", 0x0D, 0x0A, 0
+msg_ipc_test_passed:            db "VMM Shared Memory & IPC Tests PASSED!", 0x0D, 0x0A, 0
+msg_ipc_fail_pml4:              db "Failure: Could not create secondary PML4.", 0x0D, 0x0A, 0
+msg_ipc_fail_alloc:             db "Failure: Could not allocate physical page for shared memory.", 0x0D, 0x0A, 0
+msg_ipc_fail_map:               db "Failure: Could not map page in current address space.", 0x0D, 0x0A, 0
+msg_ipc_fail_share:             db "Failure: ipc_share_frame returned error.", 0x0D, 0x0A, 0
+msg_ipc_fail_shared_val:        db "Failure: Value in shared frame does not match signature.", 0x0D, 0x0A, 0
+msg_ipc_fail_ring_create:       db "Failure: Could not create consecutive ring buffer.", 0x0D, 0x0A, 0
+msg_ipc_fail_ring_val:          db "Failure: Consecutive ring buffer second half read failed or mismatch.", 0x0D, 0x0A, 0
+msg_ipc_fail_ring_cross_val:    db "Failure: Consecutive ring buffer write/read cross-validation mismatch.", 0x0D, 0x0A, 0
+
 
 
 section .bss
