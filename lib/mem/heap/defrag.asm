@@ -194,7 +194,8 @@ heap_compact:
 
     ; Create a single large free block at R13
     mov [r13 + heap_block_t.size], rax
-    mov qword [r13 + heap_block_t.flags], 0 ; free
+    mov rcx, HEAP_BLOCK_FREE_SIG
+    mov [r13 + heap_block_t.flags], rcx ; free with signature
     mov qword [r13 + heap_block_t.next], 0
     mov qword [r13 + heap_block_t.prev], 0
     
