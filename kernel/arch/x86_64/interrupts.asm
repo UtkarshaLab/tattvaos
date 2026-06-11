@@ -46,15 +46,27 @@ interrupts_init:
     mov rdi, rbx                    ; vector index
     mov rsi, [isr_table + rbx * 8]  ; handler address
     
-    ; Set IST index in RDX: 1 for vector 8 (#DF) and vector 14 (#PF), 0 otherwise
+    ; Set IST index in RDX:
+    ; 1 for vector 8 (#DF) -> IST 1
+    ; 2 for vector 14 (#PF) -> IST 2
+    ; 3 for vector 2 (NMI) -> IST 3
+    ; 0 otherwise
     xor rdx, rdx
     cmp rbx, 8                      ; Double Fault
-    je .set_ist
+    je .set_df_ist
     cmp rbx, 14                     ; Page Fault
-    je .set_ist
+    je .set_pf_ist
+    cmp rbx, 2                      ; NMI
+    je .set_nmi_ist
     jmp .do_register
-.set_ist:
-    mov rdx, 1                      ; Use IST 1 (Emergency Stack)
+.set_df_ist:
+    mov rdx, 1                      ; Use IST 1 (Double Fault Stack)
+    jmp .do_register
+.set_pf_ist:
+    mov rdx, 2                      ; Use IST 2 (Page Fault Stack)
+    jmp .do_register
+.set_nmi_ist:
+    mov rdx, 3                      ; Use IST 3 (NMI Stack)
 .do_register:
     call register_idt_handler
     
