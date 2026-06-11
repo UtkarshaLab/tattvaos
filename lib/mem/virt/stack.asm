@@ -504,6 +504,103 @@ stack_trace_walk:
     pop rbp
     ret
 
+; MAX_CPUS limit
+MAX_CPUS equ 16
+
+; -----------------------------------------------------------------------------
+; smp_stacks_init — allocates isolated stack sections for multi-core thread execution
+; Input: none
+; Output: none
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11, R12
+; -----------------------------------------------------------------------------
+global smp_stacks_init
+smp_stacks_init:
+    push r12
+    
+    ; Clear the stack array
+    mov rdi, smp_cpu_stacks
+    xor rax, rax
+    mov rcx, MAX_CPUS
+    cld
+    rep stosq
+    
+    ; Retrieve active cores count
+    extern smp_active_cores
+    mov r12d, [smp_active_cores]    ; R12D = core count
+    
+    ; Core 0 (BSP) uses the statically defined kernel_stack_top.
+    ; Store it in the array at index 0 just for completeness!
+    extern kernel_stack_top
+    mov rax, kernel_stack_top
+    mov [smp_cpu_stacks], rax
+    
+    ; If only 1 core is active, we are done
+    cmp r12d, 1
+    jbe .done
+    
+    ; Loop from core_id = 1 to core_count - 1
+    mov r8, 1                       ; R8 = current core_id
+    
+.alloc_loop:
+    cmp r8, r12
+    jae .done
+    
+    ; Save core_id
+    push r8
+    push r12
+    
+    ; Allocate a 16KB stack frame with 4KB guard page
+    mov rdi, 16384                  ; 16KB size
+    call thread_stack_alloc
+    test rax, rax
+    jz .fail
+    
+    pop r12
+    pop r8
+    
+    ; Store the allocated stack top in the array at index core_id
+    mov [smp_cpu_stacks + r8 * 8], rax
+    
+    inc r8
+    jmp .alloc_loop
+    
+.done:
+    pop r12
+    ret
+    
+.fail:
+    ; Print failure to UART
+    mov rsi, msg_smp_stack_fail
+    call uart_print_str
+    
+    ; Trigger diagnostic panic
+    mov rdi, msg_smp_stack_reason
+    mov rsi, [rsp + 24]             ; RIP of caller (since we pushed r12 at start, then r8, r12 in loop = 24 bytes)
+    call kernel_panic
+    cli
+.halt:
+    hlt
+    jmp .halt
+
+; -----------------------------------------------------------------------------
+; smp_get_cpu_stack — retrieves the stack top address for a given CPU ID
+; Input:
+;   RDI = CPU ID (0 to MAX_CPUS - 1)
+; Output:
+;   RAX = stack top address, or 0 if invalid CPU ID or not allocated
+; -----------------------------------------------------------------------------
+global smp_get_cpu_stack
+smp_get_cpu_stack:
+    cmp rdi, MAX_CPUS
+    jae .invalid
+    
+    mov rax, [smp_cpu_stacks + rdi * 8]
+    ret
+    
+.invalid:
+    xor rax, rax
+    ret
+
 section .data
 
 align 8
@@ -517,6 +614,14 @@ msg_backtrace_header:    db 0x0D, 0x0A, "--- STACK BACKTRACE ---", 0x0D, 0x0A, 0
 msg_frame_prefix:        db "  [", 0
 msg_frame_infix:         db "] RIP: ", 0
 msg_backtrace_footer:    db "-----------------------", 0x0D, 0x0A, 0
+
+msg_smp_stack_fail:      db "ERROR: Failed to allocate isolated execution stack for AP core!", 0x0D, 0x0A, 0
+msg_smp_stack_reason:    db "Failed to allocate multi-core isolated stack", 0
+
+section .bss
+align 8
+global smp_cpu_stacks
+smp_cpu_stacks: resq MAX_CPUS
 
 section .text
 
