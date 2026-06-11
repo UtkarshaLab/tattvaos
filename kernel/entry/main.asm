@@ -100,6 +100,10 @@ extern virt_create_user_pml4
 extern ipc_share_frame
 extern ipc_create_ring_buffer
 extern ipc_destroy_ring_buffer
+extern leak_tracker_init
+extern heap_leak_report
+extern leak_table
+
 
 
 
@@ -3998,7 +4002,107 @@ test_ctor:
     mov rsi, msg_ipc_test_passed
     call uart_print_str
 
+    jmp .leak_test_start
+
+    ; =========================================================================
+    ; Memory Leak Tracker Tests (Subfeature 19.1)
+    ; =========================================================================
+.leak_test_start:
+    mov rsi, msg_leak_test_start
+    call uart_print_str
+
+    ; 1. Reset/Initialize leak tracker
+    call leak_tracker_init
+
+    ; 2. Run report, verify RAX = 0 leaks initially
+    call heap_leak_report
+    cmp rax, 0
+    jne .leak_fail_initial
+
+    ; 3. Allocate two memory blocks
+    mov rdi, 128
+    call heap_alloc                 ; RAX = block 1
+    test rax, rax
+    jz .leak_fail_alloc
+    mov r12, rax                    ; R12 = block 1 pointer
+
+    mov rdi, 256
+    call heap_alloc                 ; RAX = block 2
+    test rax, rax
+    jz .leak_fail_alloc
+    mov r13, rax                    ; R13 = block 2 pointer
+
+    ; 4. Free block 1
+    mov rdi, r12
+    call heap_free
+
+    ; 5. Run leak report, verify RAX = 1 leak is detected
+    call heap_leak_report
+    cmp rax, 1
+    jne .leak_fail_count
+
+    ; Verify that block 2 address in our leak table matches r13
+    ; Each leak_entry_t is 24 bytes (0=.ptr, 8=.size, 16=.caller)
+    lea rbx, [leak_table]
+    xor rcx, rcx
+    xor rdx, rdx                    ; RDX = count of active leak pointers matched
+.verify_loop:
+    cmp rcx, 512                    ; LEAK_MAX_ENTRIES
+    jge .verify_done
+    mov rax, [rbx + rcx * 24 + 0]   ; offset 0 is .ptr
+    test rax, rax
+    jz .next_verify
+    cmp rax, r13
+    jne .next_verify
+    inc rdx                         ; found block 2!
+.next_verify:
+    inc rcx
+    jmp .verify_loop
+
+.verify_done:
+    cmp rdx, 1
+    jne .leak_fail_verify
+
+    ; 6. Free block 2
+    mov rdi, r13
+    call heap_free
+
+    ; 7. Run leak report, verify RAX = 0 leaks
+    call heap_leak_report
+    cmp rax, 0
+    jne .leak_fail_final
+
+    ; VMM Memory Leak Tracker Tests PASSED!
+    mov rsi, msg_leak_test_passed
+    call uart_print_str
+
     jmp .idle
+
+.leak_fail_initial:
+    mov rsi, msg_leak_fail_initial
+    call uart_print_str
+    jmp .panic
+
+.leak_fail_alloc:
+    mov rsi, msg_leak_fail_alloc
+    call uart_print_str
+    jmp .panic
+
+.leak_fail_count:
+    mov rsi, msg_leak_fail_count
+    call uart_print_str
+    jmp .panic
+
+.leak_fail_verify:
+    mov rsi, msg_leak_fail_verify
+    call uart_print_str
+    jmp .panic
+
+.leak_fail_final:
+    mov rsi, msg_leak_fail_final
+    call uart_print_str
+    jmp .panic
+
 
 .ipc_fail_pml4:
     mov rsi, msg_ipc_fail_pml4
@@ -5772,6 +5876,15 @@ msg_ipc_fail_shared_val:        db "Failure: Value in shared frame does not matc
 msg_ipc_fail_ring_create:       db "Failure: Could not create consecutive ring buffer.", 0x0D, 0x0A, 0
 msg_ipc_fail_ring_val:          db "Failure: Consecutive ring buffer second half read failed or mismatch.", 0x0D, 0x0A, 0
 msg_ipc_fail_ring_cross_val:    db "Failure: Consecutive ring buffer write/read cross-validation mismatch.", 0x0D, 0x0A, 0
+
+msg_leak_test_start:            db "Running VMM Memory Leak Tracker Tests...", 0x0D, 0x0A, 0
+msg_leak_test_passed:           db "VMM Memory Leak Tracker Tests PASSED!", 0x0D, 0x0A, 0
+msg_leak_fail_initial:          db "Failure: Leak tracker reported non-zero leaks initially.", 0x0D, 0x0A, 0
+msg_leak_fail_alloc:            db "Failure: Could not allocate heap memory for leak tracker test.", 0x0D, 0x0A, 0
+msg_leak_fail_count:            db "Failure: Leak tracker did not report exactly 1 leak after partial free.", 0x0D, 0x0A, 0
+msg_leak_fail_verify:           db "Failure: Logged leak pointer did not match the leaked block.", 0x0D, 0x0A, 0
+msg_leak_fail_final:            db "Failure: Leak tracker reported non-zero leaks after all blocks freed.", 0x0D, 0x0A, 0
+
 
 
 
