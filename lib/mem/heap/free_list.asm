@@ -21,6 +21,10 @@ endstruc
 
 section .text
 
+extern uart_print_str
+extern uart_print_hex64
+extern kernel_panic
+
 ; -----------------------------------------------------------------------------
 ; free_list_init — initializes the free list heap allocator in a given region
 ; Input:
@@ -49,7 +53,8 @@ free_list_init:
     sub rcx, heap_block_t_size      ; RCX = block size (excluding header)
     
     mov qword [rax + heap_block_t.size], rcx
-    mov qword [rax + heap_block_t.flags], 0 ; mark as free
+    mov rdx, HEAP_BLOCK_FREE_SIG
+    mov [rax + heap_block_t.flags], rdx ; mark as free with signature
     mov qword [rax + heap_block_t.next], 0
     mov qword [rax + heap_block_t.prev], 0
     
@@ -123,7 +128,8 @@ free_list_alloc:
     
     ; Initialize new block header
     mov [rdi + heap_block_t.size], r9
-    mov qword [rdi + heap_block_t.flags], 0 ; free
+    mov rdx, HEAP_BLOCK_FREE_SIG
+    mov [rdi + heap_block_t.flags], rdx ; free with signature
     
     ; Link new block in place of old block
     mov rdx, [rsi + heap_block_t.next]
@@ -145,7 +151,8 @@ free_list_alloc:
 .split_done:
     ; Update allocated block size and flags
     mov [rsi + heap_block_t.size], r8
-    mov qword [rsi + heap_block_t.flags], 1 ; used
+    mov rdx, HEAP_BLOCK_USED_SIG
+    mov [rsi + heap_block_t.flags], rdx ; used with signature
     
     ; Return pointer to block body
     mov rax, rsi
@@ -169,7 +176,8 @@ free_list_alloc:
     mov [rcx + heap_block_t.prev], rdx
 .whole_done:
     ; Mark as used
-    mov qword [rsi + heap_block_t.flags], 1 ; used
+    mov rcx, HEAP_BLOCK_USED_SIG
+    mov [rsi + heap_block_t.flags], rcx ; used with signature
     
     ; Return pointer to block body
     mov rax, rsi
@@ -192,19 +200,42 @@ free_list_free:
     test rdi, rdi
     jz .done
 
-    ; Zero out the payload memory before freeing
-    push rdi
+    ; 1. Verify alignment (RDI must be 16-byte aligned)
+    test rdi, 15
+    jnz .invalid_alignment
+
+    ; 2. Verify signature in block header
     mov rax, rdi
-    sub rax, heap_block_t_size
+    sub rax, heap_block_t_size      ; RAX = block header pointer
+    mov rdx, [rax + heap_block_t.flags]
+
+    ; Check if it matches HEAP_BLOCK_USED_SIG
+    mov rcx, HEAP_BLOCK_USED_SIG
+    cmp rdx, rcx
+    je .signature_ok
+
+    ; Check if it matches HEAP_BLOCK_FREE_SIG or 0 (double-free condition)
+    mov rcx, HEAP_BLOCK_FREE_SIG
+    cmp rdx, rcx
+    je .double_free
+    test rdx, rdx
+    jz .double_free
+
+    ; Otherwise, it's corrupted or has an invalid signature
+    jmp .invalid_signature
+
+.signature_ok:
+    ; Stamp header immediately as FREE to prevent concurrent/subsequent double-free racing
+    mov rcx, HEAP_BLOCK_FREE_SIG
+    mov [rax + heap_block_t.flags], rcx
+
+    ; Zero out the payload memory before freeing
+    push rax                        ; preserve block header pointer
     mov rsi, [rax + heap_block_t.size] ; RSI = payload size
     ; RDI is already the payload pointer
     call memzero
-    pop rdi
-    
-    ; Get pointer to block header
-    sub rdi, heap_block_t_size      ; RDI = block header pointer
-    mov qword [rdi + heap_block_t.flags], 0 ; mark as free
-    
+    pop rdi                         ; RDI = block header pointer (RAX)
+
     ; Find correct spot in address-sorted free list
     mov rsi, [free_list_head]       ; RSI = current list node
     xor rdx, rdx                    ; RDX = previous list node (initially null)
@@ -307,6 +338,68 @@ free_list_free:
 .done:
     ret
 
+.invalid_alignment:
+    ; Print error details to UART
+    mov rsi, msg_invalid_align_prefix
+    call uart_print_str
+    mov rdi, rdi                    ; payload pointer
+    call uart_print_hex64
+    mov rsi, msg_newline
+    call uart_print_str
+    
+    ; Panic
+    mov rdi, msg_invalid_align_reason
+    mov rsi, [rsp]                  ; caller RIP
+    call kernel_panic
+    cli
+.halt1:
+    hlt
+    jmp .halt1
+
+.double_free:
+    ; Print error details to UART
+    mov rsi, msg_double_free_prefix
+    call uart_print_str
+    mov rdi, rdi                    ; payload pointer
+    call uart_print_hex64
+    mov rsi, msg_double_free_infix
+    call uart_print_str
+    mov rdi, rdx                    ; flags value
+    call uart_print_hex64
+    mov rsi, msg_newline
+    call uart_print_str
+    
+    ; Panic
+    mov rdi, msg_double_free_reason
+    mov rsi, [rsp]                  ; caller RIP
+    call kernel_panic
+    cli
+.halt2:
+    hlt
+    jmp .halt2
+
+.invalid_signature:
+    ; Print error details to UART
+    mov rsi, msg_invalid_sig_prefix
+    call uart_print_str
+    mov rdi, rdi                    ; payload pointer
+    call uart_print_hex64
+    mov rsi, msg_invalid_sig_infix
+    call uart_print_str
+    mov rdi, rdx                    ; flags value
+    call uart_print_hex64
+    mov rsi, msg_newline
+    call uart_print_str
+    
+    ; Panic
+    mov rdi, msg_invalid_sig_reason
+    mov rsi, [rsp]                  ; caller RIP
+    call kernel_panic
+    cli
+.halt3:
+    hlt
+    jmp .halt3
+
 ; -----------------------------------------------------------------------------
 ; free_list_realloc — resizes a previously allocated memory block
 ; Input:
@@ -388,5 +481,19 @@ section .data
 align 8
 global free_list_head
 free_list_head: dq 0
+
+align 8
+msg_invalid_align_prefix: db "ERROR: Free alignment check failed for pointer ", 0
+msg_invalid_align_reason: db "Heap release pointer is not 16-byte aligned", 0
+
+msg_double_free_prefix:   db "ERROR: Double-free detected at pointer ", 0
+msg_double_free_infix:    db " with flags/signature ", 0
+msg_double_free_reason:   db "Double-free of heap block detected", 0
+
+msg_invalid_sig_prefix:   db "ERROR: Heap release signature check failed for pointer ", 0
+msg_invalid_sig_infix:    db " with flags/signature ", 0
+msg_invalid_sig_reason:   db "Heap block header signature is invalid/corrupted", 0
+
+msg_newline:              db 0x0D, 0x0A, 0
 
 %endif ; LIB_MEM_HEAP_FREE_LIST_ASM
