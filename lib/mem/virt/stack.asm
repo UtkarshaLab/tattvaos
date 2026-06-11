@@ -119,18 +119,22 @@ thread_stack_alloc:
     add rbx, 4095
     and rbx, -4096                  ; RBX = aligned size
     
+    ; Calculate total size including 4KB guard page
+    mov r12, rbx
+    add r12, 4096                   ; R12 = total size (stack + guard page)
+    
     ; 2. Find a free virtual range
-    mov rdi, rbx
+    mov rdi, r12
     mov rsi, STACK_VIRT_START
     call virt_find_free_range
     test rax, rax
     jz .fail
     
-    mov r12, rax                    ; R12 = start virtual address of stack
+    mov r13, rax                    ; R13 = start virtual address (guard page base)
     
-    ; 3. Create VMA for this range
-    mov rdi, r12
-    mov rsi, rbx
+    ; 3. Create VMA for this total range
+    mov rdi, r13
+    mov rsi, r12
     mov rdx, (VMA_STACK | VMA_READ | VMA_WRITE)
     call vma_create
     test rax, rax
@@ -138,13 +142,15 @@ thread_stack_alloc:
     
     mov r15, rax                    ; R15 = VMA pointer
     
-    ; 4. Allocate and map physical pages
-    mov r13, r12                    ; R13 = current virtual address cursor
-    mov r14, r12
-    add r14, rbx                    ; R14 = end virtual address of stack (top)
+    ; 4. Allocate and map physical pages only for the actual stack (exclude first 4KB)
+    mov r14, r13
+    add r14, 4096                   ; R14 = current virtual address cursor (first stack page)
+    
+    mov rbx, r13
+    add rbx, r12                    ; RBX = end virtual address of stack (top)
     
 .map_loop:
-    cmp r13, r14
+    cmp r14, rbx
     jae .map_success
     
     ; Allocate a physical page frame
@@ -153,17 +159,17 @@ thread_stack_alloc:
     jz .oom_cleanup
     
     ; Map virtual page to physical frame
-    mov rdi, r13                    ; virtual address
+    mov rdi, r14                    ; virtual address
     mov rsi, rax                    ; physical address
     mov rdx, (PAGE_PRESENT | PAGE_WRITABLE | PAGE_NX)
     call virt_map
     
-    add r13, 4096
+    add r14, 4096
     jmp .map_loop
     
 .map_success:
-    ; Return the TOP of the stack (R14)
-    mov rax, r14
+    ; Return the TOP of the stack (RBX)
+    mov rax, rbx
     
 .exit:
     pop r15
@@ -175,10 +181,11 @@ thread_stack_alloc:
 
 .oom_cleanup:
     ; Clean up previously mapped pages
-    ; Loop from R12 to R13 (exclusive)
-    mov r12, r12
+    ; Loop from R13 + 4096 to R14 (exclusive)
+    mov r12, r13
+    add r12, 4096                   ; R12 = start of stack pages
 .cleanup_loop:
-    cmp r12, r13
+    cmp r12, r14
     jae .destroy_vma
     
     ; Get mapped physical address to free it
@@ -209,7 +216,7 @@ thread_stack_alloc:
 ; thread_stack_free — frees a previously allocated thread stack frame
 ; Input:
 ;   RDI = virtual address of the TOP of the stack (exclusive, returned by alloc)
-;   RSI = size of the stack in bytes
+;   RSI = size of the stack in bytes (excluding guard page)
 ; Output: none
 ; -----------------------------------------------------------------------------
 global thread_stack_free
@@ -222,20 +229,25 @@ thread_stack_free:
     mov rbx, rdi                    ; RBX = top of stack (exclusive)
     mov r12, rsi                    ; R12 = stack size
     
-    ; Calculate start address (start = top - size)
-    mov r13, rbx
-    sub r13, r12                    ; R13 = start address (page-aligned)
+    ; Calculate total size including 4KB guard page
+    mov rdx, r12
+    add rdx, 4096                   ; RDX = total size
     
-    ; Find the VMA corresponding to the start address to destroy it later
+    ; Calculate start address (start = top - total_size)
+    mov r13, rbx
+    sub r13, rdx                    ; R13 = start address of guard page (page-aligned)
+    
+    ; Find the VMA corresponding to the start address (guard page base) to destroy it later
     mov rdi, r13
     call vma_find
     mov r14, rax                    ; R14 = VMA pointer (or 0)
     
-    ; Free all physical pages and unmap virtual space
-    mov rcx, r13                    ; RCX = current virtual address cursor
+    ; Free all physical pages and unmap virtual space for the actual stack pages
+    mov rcx, r13
+    add rcx, 4096                   ; RCX = current virtual address cursor (first stack page)
 .free_loop:
     cmp rcx, rbx
-    jae .free_vma
+    jae .unmap_guard
     
     push rcx
     
@@ -259,6 +271,11 @@ thread_stack_free:
     pop rcx
     add rcx, 4096
     jmp .free_loop
+
+.unmap_guard:
+    ; Also unmap the guard page virtual address to keep page tables clean
+    mov rdi, r13
+    call virt_unmap
 
 .free_vma:
     ; Destroy the VMA if found
