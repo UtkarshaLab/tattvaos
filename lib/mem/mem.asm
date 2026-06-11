@@ -61,6 +61,7 @@
 %include "lib/mem/virt/pf.asm"
 %include "lib/mem/virt/ept.asm"
 %include "lib/mem/virt/spt.asm"
+%include "lib/mem/virt/vtlb.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
