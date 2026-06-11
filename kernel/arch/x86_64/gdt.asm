@@ -34,9 +34,17 @@ gdt_init:
     cld
     rep stosq
 
-    ; Set IST1 stack pointer
-    mov rax, emergency_stack_top
+    ; Set IST1 stack pointer (Double Fault)
+    mov rax, double_fault_stack_top
     mov [kernel_tss + 36], rax       ; tss.ist1 (offset 36)
+
+    ; Set IST2 stack pointer (Page Fault)
+    mov rax, page_fault_stack_top
+    mov [kernel_tss + 44], rax       ; tss.ist2 (offset 44)
+
+    ; Set IST3 stack pointer (NMI)
+    mov rax, nmi_stack_top
+    mov [kernel_tss + 52], rax       ; tss.ist3 (offset 52)
     
     ; Set I/O map base to 104 (no I/O map)
     mov word [kernel_tss + 102], 104 ; tss.iomap_base (offset 102)
@@ -130,8 +138,18 @@ kernel_tss:
     resb 104                        ; 64-bit TSS structure space
 
 align 16
-emergency_stack_bottom:
-    resb 4096                       ; 4KB Emergency Stack for IST 1
-emergency_stack_top:
+double_fault_stack_bottom:
+    resb 4096                       ; 4KB Emergency Stack for IST 1 (Double Fault)
+double_fault_stack_top:
+
+align 16
+page_fault_stack_bottom:
+    resb 4096                       ; 4KB Emergency Stack for IST 2 (Page Fault)
+page_fault_stack_top:
+
+align 16
+nmi_stack_bottom:
+    resb 4096                       ; 4KB Emergency Stack for IST 3 (NMI)
+nmi_stack_top:
 
 %endif ; KERNEL_ARCH_X86_64_GDT_ASM
