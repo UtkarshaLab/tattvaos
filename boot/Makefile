@@ -83,7 +83,16 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
 
                           $(KERNEL_DIR)/../lib/hw/ucpu/mtrr.asm \
                           $(KERNEL_DIR)/../lib/hw/ucpu/pat.asm \
-                          $(KERNEL_DIR)/drivers/gpu/fb.asm
+                          $(KERNEL_DIR)/drivers/gpu/fb.asm \
+                          $(KERNEL_DIR)/../unet/core/link/net_link.asm \
+                          $(KERNEL_DIR)/../unet/core/link/net_ring.inc \
+                          $(KERNEL_DIR)/../unet/core/link/net_ring.asm \
+                          $(KERNEL_DIR)/../unet/core/link/ring.asm \
+                          $(KERNEL_DIR)/../unet/core/link/pci.asm \
+                          $(KERNEL_DIR)/../unet/core/link/loan.asm \
+                          $(KERNEL_DIR)/../unet/core/link/sbuf.asm \
+                          $(KERNEL_DIR)/../unet/core/link/recycle.asm \
+                          $(KERNEL_DIR)/../unet/core/link/rss.asm
 
 	$(ASM) -f bin $(KERNEL_DIR)/entry.asm \
 		-i $(KERNEL_DIR)/ -i $(KERNEL_DIR)/../ \
