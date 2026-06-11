@@ -173,6 +173,32 @@ virt_page_fault_handler:
     test r13, 1                     ; present fault (bit 0 set)?
     jnz .not_swap_fault             ; yes, cannot be swap fault
 
+    ; Check if the faulting address was previously quarantined (Use-After-Free)
+    mov rdi, r12                    ; faulting address
+    extern uaf_quarantine_check
+    call uaf_quarantine_check
+    test rax, rax
+    jz .not_uaf_trap
+
+    ; Use-After-Free detected! Trigger diagnostic panic
+    mov rsi, msg_uaf_panic_prefix
+    call uart_print_str
+    mov rax, r12
+    call uart_print_hex64
+    mov rsi, msg_uaf_panic_suffix
+    call uart_print_str
+
+    mov rdi, msg_uaf_reason
+    mov rsi, [rsp + 160]            ; RIP of crash
+    call kernel_panic
+    cli
+.halt:
+    hlt
+    jmp .halt
+
+.not_uaf_trap:
+
+
     mov rdi, r12
     xor rsi, rsi
     call virt_walk_table            ; RAX = PTE address, RDX = level
@@ -835,6 +861,11 @@ msg_stack_overflow_panic:   db "KERNEL PANIC: Stack Overflow detected! Page faul
 msg_stack_overflow_reason:  db "Double Fault / Kernel Stack Overflow", 0
 
 msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
+
+msg_uaf_panic_prefix:  db "KERNEL PANIC: Use-After-Free detected at address 0x", 0
+msg_uaf_panic_suffix:  db "! (UAF_TEST_SUCCESS)", 0x0D, 0x0A, 0
+msg_uaf_reason:        db "Use-After-Free Memory Access Violation", 0
+
 
 align 8
 global zero_page_addr
