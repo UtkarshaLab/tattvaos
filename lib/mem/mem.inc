@@ -102,4 +102,8 @@ struc numa_node_t
     .reserved_pages  resq 1          ; Reserved page count in this node
 endstruc
 
+; Heap block signatures (Subfeature 19.3: Double-Free Verifier)
+HEAP_BLOCK_FREE_SIG equ 0x54415454414C4F40 ; "TATTALO0" (bit 0 = 0)
+HEAP_BLOCK_USED_SIG equ 0x54415454414C4F41 ; "TATTALO1" (bit 0 = 1)
+
 %endif ; LIB_MEM_MEM_INC
