@@ -168,6 +168,18 @@ thread_stack_alloc:
     jmp .map_loop
     
 .map_success:
+    ; Generate canary using RDTSC (supported on all x86-64 processors)
+    rdtsc
+    shl rdx, 32
+    or rax, rdx
+    xor rax, rbx                    ; mix with stack top address for spatial uniqueness
+    
+    ; Stamp canary immediately below return pointer (at stack_top - 16)
+    mov [rbx - 16], rax
+    
+    ; Store expected canary in VMA metadata (file_size field)
+    mov [r15 + vma_t.file_size], rax
+
     ; Return the TOP of the stack (RBX)
     mov rax, rbx
     
@@ -242,6 +254,22 @@ thread_stack_free:
     call vma_find
     mov r14, rax                    ; R14 = VMA pointer (or 0)
     
+    ; Verify stack canary before reclaiming stack pages
+    test r14, r14
+    jz .free_pages                  ; if no VMA, skip check (should not happen)
+    
+    ; Check if this is a stack VMA
+    mov rax, [r14 + vma_t.flags]
+    test rax, VMA_STACK
+    jz .free_pages                  ; if not a stack VMA, skip check
+    
+    ; Read expected and actual canaries
+    mov rcx, [r14 + vma_t.file_size] ; RCX = expected canary
+    mov rdx, [rbx - 16]             ; RDX = actual canary
+    cmp rcx, rdx
+    jne .canary_corrupted
+    
+.free_pages:
     ; Free all physical pages and unmap virtual space for the actual stack pages
     mov rcx, r13
     add rcx, 4096                   ; RCX = current virtual address cursor (first stack page)
@@ -291,5 +319,48 @@ thread_stack_free:
     pop r12
     pop rbx
     ret
+
+.canary_corrupted:
+    ; Print mismatch details to UART
+    mov rsi, msg_canary_error_prefix
+    call uart_print_str
+    
+    mov rdi, rbx                    ; stack top
+    call uart_print_hex64
+    
+    mov rsi, msg_canary_error_infix1
+    call uart_print_str
+    
+    mov rdi, [r14 + vma_t.file_size] ; expected canary
+    call uart_print_hex64
+    
+    mov rsi, msg_canary_error_infix2
+    call uart_print_str
+    
+    mov rdi, [rbx - 16]             ; found/actual canary
+    call uart_print_hex64
+    
+    mov rsi, msg_newline
+    call uart_print_str
+    
+    ; Trigger diagnostic panic
+    mov rdi, msg_canary_error_reason
+    mov rsi, [rsp + 32]             ; caller RIP (32 bytes offset due to 4 register pushes)
+    call kernel_panic
+    cli
+.halt_canary:
+    hlt
+    jmp .halt_canary
+
+section .data
+
+align 8
+msg_canary_error_prefix: db "ERROR: Stack canary mismatch detected for stack top ", 0
+msg_canary_error_infix1: db "! Expected: ", 0
+msg_canary_error_infix2: db " Found: ", 0
+msg_canary_error_reason: db "Stack canary corruption detected", 0
+msg_newline:             db 0x0D, 0x0A, 0
+
+section .text
 
 %endif ; LIB_MEM_VIRT_STACK_ASM
