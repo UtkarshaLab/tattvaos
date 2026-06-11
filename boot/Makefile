@@ -30,8 +30,10 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/ops/memcpy.asm $(KERNEL_DIR)/../lib/mem/ops/memset.asm $(KERNEL_DIR)/../lib/mem/ops/memzero.asm $(KERNEL_DIR)/../lib/mem/ops/memcmp.asm $(KERNEL_DIR)/../lib/mem/ops/memmove.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/bump.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/free_list.asm \
+                          $(KERNEL_DIR)/../lib/mem/heap/leak_tracker.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/heap.asm \
                           $(KERNEL_DIR)/../lib/mem/heap/defrag.asm \
+
                           $(KERNEL_DIR)/../lib/mem/slab/slab.asm \
                           $(KERNEL_DIR)/../lib/mem/slab/slab_create.asm \
                           $(KERNEL_DIR)/../lib/mem/slab/slab_alloc.asm \

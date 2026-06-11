@@ -24,8 +24,10 @@
 %include "lib/mem/phys/phys.asm"
 %include "lib/mem/heap/bump.asm"
 %include "lib/mem/heap/free_list.asm"
+%include "lib/mem/heap/leak_tracker.asm"
 %include "lib/mem/heap/heap.asm"
 %include "lib/mem/heap/defrag.asm"
+
 
 %include "lib/mem/slab/slab.asm"
 %include "lib/mem/slab/slab_create.asm"
