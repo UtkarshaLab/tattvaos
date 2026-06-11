@@ -184,6 +184,12 @@ virt_unmap:
     mov qword [rbp], 0
     invlpg [r12]
 
+    ; Add unmapped address to UAF quarantine list to trap future accesses
+    mov rdi, r12
+    extern uaf_quarantine_add
+    call uaf_quarantine_add
+
+
     ; =========================================================================
     ; Step 2: Check if the PT is now fully empty → reclaim it
     ; =========================================================================
