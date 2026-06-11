@@ -25,6 +25,8 @@ VMA_COW         equ (1 << 4)
 VMA_ZFOD        equ (1 << 5)
 VMA_STACK       equ (1 << 6)
 VMA_ONDEMAND    equ (1 << 7)
+VMA_FILE        equ (1 << 8)
+
 
 ; Page Table Flags (from pgtable.asm)
 PAGE_PRESENT    equ (1 << 0)
@@ -56,6 +58,8 @@ extern phys_state
 extern zswap_decompress_and_free
 extern kernel_stack_guard
 extern kernel_panic
+extern virt_handle_file_map
+
 
 ; -----------------------------------------------------------------------------
 ; page_fault_isr — Low-level assembly entry point for Vector 14 (#PF)
@@ -211,6 +215,10 @@ virt_page_fault_handler:
     jnz .present_fault
 
     ; --- Non-Present Fault ---
+    ; Check if file-mapped VMA
+    test rbx, VMA_FILE
+    jnz .file_map_path
+
     ; Check if on-demand paging VMA
     test rbx, VMA_ONDEMAND
     jnz .on_demand_path
@@ -224,6 +232,17 @@ virt_page_fault_handler:
     jnz .stack_grow_path
 
     jmp .do_diagnostics              ; not on-demand, ZFOD, or Stack VMA -> panic
+
+.file_map_path:
+    ; Call handler for file-mapped paging
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    call virt_handle_file_map
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
 
 .on_demand_path:
     ; Call handler for on-demand paging

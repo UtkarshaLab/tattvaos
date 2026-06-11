@@ -56,6 +56,8 @@
 %include "lib/mem/virt/kswapd.asm"
 %include "lib/mem/virt/pf.asm"
 %include "lib/mem/virt/replacement.asm"
+%include "storage/ummapf/mmap.asm"
 
 %endif ; LIB_MEM_MEM_ASM
+
 

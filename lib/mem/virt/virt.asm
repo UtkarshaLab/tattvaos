@@ -17,7 +17,13 @@ struc vma_t
     .end        resq 1          ; End virtual address (page-aligned, exclusive)
     .flags      resq 1          ; VMA flags
     .next       resq 1          ; Pointer to next VMA in the list
+    .file_ptr   resq 1          ; Pointer to mapped file structure
+    .file_off   resq 1          ; Offset inside the file
+    .file_size  resq 1          ; Original mapped size of the file
 endstruc
+
+VMA_FILE        equ (1 << 8)    ; Bind storage file directly to VMA
+
 
 section .text
 

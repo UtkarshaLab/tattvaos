@@ -91,6 +91,12 @@ extern pool_alloc
 extern pool_free
 extern pool_grow
 extern pool_destroy
+extern mock_file_create
+extern mock_file_destroy
+extern vma_map_file
+extern mmap_msync
+extern mmap_munmap
+
 
 
 
@@ -3761,7 +3767,161 @@ test_ctor:
     mov rsi, msg_zof_test_passed
     call uart_print_str
 
+    jmp .mmap_test_start
+
+    ; =========================================================================
+    ; Memory-Mapped Files (mmap) Tests (Section 17)
+    ; =========================================================================
+.mmap_test_start:
+    mov rsi, msg_mmap_test_start
+    call uart_print_str
+
+    ; 1. Create a mock file with size 8192 (2 pages)
+    mov rdi, 8192
+    call mock_file_create
+    test rax, rax
+    jz .mmap_fail_create
+    mov r12, rax                    ; R12 = file_ptr (mock_file_t)
+
+    ; 2. Map the file to virtual address 0x80000000 with VMA_READ | VMA_WRITE
+    mov rdi, 0x80000000
+    mov rsi, 8192                   ; 2 pages
+    mov rdx, 0x03                   ; VMA_READ | VMA_WRITE
+    mov r8, r12                     ; file_ptr
+    mov r9, 0                       ; file offset 0
+    call vma_map_file
+    test rax, rax
+    jz .mmap_fail_map
+
+    ; 3. Access virtual address to trigger demand paging load (Read test)
+    ; Virtual address: 0x80000000.
+    ; This triggers a #PF, loads from mock storage, maps, and resumes execution.
+    mov rsi, 0x80000000
+    mov rax, [rsi]
+    cmp rax, 0x4154544154544154     ; Compare first 8 bytes: "TATTVA_M"
+    jne .mmap_fail_read_val
+
+    ; Check offset value at 0x80000020 (decimal 32)
+    mov rax, [rsi + 32]
+    cmp rax, 0                      ; offset should be 0
+    jne .mmap_fail_read_offset
+
+    ; 4. Write data to the memory-mapped file (Write test)
+    ; This sets the PAGE_DIRTY bit in the PTE.
+    mov qword [rsi], 0xDEADBEEFCAFEBABY
+    mov qword [rsi + 32], 0x1234567890ABCDEF
+
+    ; 5. Verify the dirty bit is set in the PTE
+    mov rdi, 0x80000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .mmap_fail_pte
+    mov rcx, [rax]
+    test rcx, 0x40                  ; PAGE_DIRTY (bit 6)
+    jz .mmap_fail_dirty             ; If not set, error
+
+    ; 6. Synchronize dirty pages back to mock storage via mmap_msync
+    mov rdi, 0x80000000
+    mov rsi, 8192
+    call mmap_msync
+    test rax, rax
+    jz .mmap_fail_sync
+
+    ; 7. Verify that the dirty bit is now cleared in the PTE
+    mov rdi, 0x80000000
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE address
+    test rax, rax
+    jz .mmap_fail_pte
+    mov rcx, [rax]
+    test rcx, 0x40                  ; PAGE_DIRTY should be cleared
+    jnz .mmap_fail_not_cleared
+
+    ; 8. Verify the backing mock file blocks actually contain the synchronized data
+    mov rbx, [r12 + mock_file_t.blocks + 0] ; First block physical page address
+    test rbx, rbx
+    jz .mmap_fail_backing
+
+    mov rax, [rbx]
+    cmp rax, 0xDEADBEEFCAFEBABY
+    jne .mmap_fail_backing_data
+    mov rax, [rbx + 32]
+    cmp rax, 0x1234567890ABCDEF
+    jne .mmap_fail_backing_data
+
+    ; 9. Unmap the range via mmap_munmap
+    mov rdi, 0x80000000
+    mov rsi, 8192
+    call mmap_munmap
+    test rax, rax
+    jz .mmap_fail_unmap
+
+    ; 10. Destroy the mock file structure
+    mov rdi, r12
+    call mock_file_destroy
+
+    ; VMM Memory-Mapped Files (mmap) Tests PASSED!
+    mov rsi, msg_mmap_test_passed
+    call uart_print_str
+
     jmp .idle
+
+.mmap_fail_create:
+    mov rsi, msg_mmap_fail_create
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_map:
+    mov rsi, msg_mmap_fail_map
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_read_val:
+    mov rsi, msg_mmap_fail_read_val
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_read_offset:
+    mov rsi, msg_mmap_fail_read_offset
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_pte:
+    mov rsi, msg_mmap_fail_pte
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_dirty:
+    mov rsi, msg_mmap_fail_dirty
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_sync:
+    mov rsi, msg_mmap_fail_sync
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_not_cleared:
+    mov rsi, msg_mmap_fail_not_cleared
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_backing:
+    mov rsi, msg_mmap_fail_backing
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_backing_data:
+    mov rsi, msg_mmap_fail_backing_data
+    call uart_print_str
+    jmp .panic
+
+.mmap_fail_unmap:
+    mov rsi, msg_mmap_fail_unmap
+    call uart_print_str
+    jmp .panic
+
 
 .smep_smap_fail_alloc:
     mov rsi, msg_smep_smap_fail_alloc_str
@@ -5412,6 +5572,21 @@ msg_zof_fail_heap_alloc_str:    db "Failure: Could not allocate memory from heap
 msg_zof_fail_heap_zero_str:     db "Failure: Heap memory was not zeroed out on free.", 0x0D, 0x0A, 0
 msg_zof_fail_phys_alloc_str:    db "Failure: Could not allocate physical page for Zero on Free test.", 0x0D, 0x0A, 0
 msg_zof_fail_phys_zero_str:     db "Failure: Physical page was not zeroed out on free.", 0x0D, 0x0A, 0
+
+msg_mmap_test_start:            db "Running VMM Memory-Mapped Files (mmap) Tests...", 0x0D, 0x0A, 0
+msg_mmap_test_passed:           db "VMM Memory-Mapped Files (mmap) Tests PASSED!", 0x0D, 0x0A, 0
+msg_mmap_fail_create:           db "Failure: Could not create mock file.", 0x0D, 0x0A, 0
+msg_mmap_fail_map:              db "Failure: Could not map file to VMA.", 0x0D, 0x0A, 0
+msg_mmap_fail_read_val:         db "Failure: Read value from memory-mapped file does not match signature.", 0x0D, 0x0A, 0
+msg_mmap_fail_read_offset:      db "Failure: Offset read from memory-mapped file does not match expected.", 0x0D, 0x0A, 0
+msg_mmap_fail_pte:              db "Failure: Walk table returned null PTE for memory-mapped page.", 0x0D, 0x0A, 0
+msg_mmap_fail_dirty:            db "Failure: PAGE_DIRTY bit not set in PTE after memory write.", 0x0D, 0x0A, 0
+msg_mmap_fail_sync:             db "Failure: mmap_msync returned error.", 0x0D, 0x0A, 0
+msg_mmap_fail_not_cleared:      db "Failure: PAGE_DIRTY bit not cleared in PTE after msync.", 0x0D, 0x0A, 0
+msg_mmap_fail_backing:          db "Failure: Backing mock file block is null after msync.", 0x0D, 0x0A, 0
+msg_mmap_fail_backing_data:     db "Failure: backing mock file block data does not match synced RAM page.", 0x0D, 0x0A, 0
+msg_mmap_fail_unmap:            db "Failure: mmap_munmap returned error.", 0x0D, 0x0A, 0
+
 
 section .bss
 align 8
