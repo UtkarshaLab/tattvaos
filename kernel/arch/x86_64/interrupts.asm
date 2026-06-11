@@ -342,6 +342,11 @@ common_isr_handler:
     mov rsi, msg_crlf
     call uart_print_str
 
+    ; Call stack trace walker to print backtrace (Subfeature 20.5)
+    extern stack_trace_walk
+    mov rdi, [rsp + 64]             ; RDI = RBP at exception entry
+    call stack_trace_walk
+
     ; 7. Trigger the warm restart / survive log
     mov rbx, [rsp + 120]            ; vector
     cmp rbx, 32
