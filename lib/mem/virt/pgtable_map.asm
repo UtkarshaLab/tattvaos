@@ -43,9 +43,15 @@ virt_map:
     mov r14, rdx                    ; R14 = flags
     or r14, PAGE_PRESENT            ; always present when mapped
 
+    ; Clear address from UAF quarantine list if it was previously freed
+    mov rdi, r12
+    extern uaf_quarantine_remove
+    call uaf_quarantine_remove
+
     ; Acquire per-PML4 spinlock for this virtual address (3.4)
     mov rdi, r12
     call pgtable_lock_acquire
+
 
     ; Load CR3 as the initial directory base
     mov rax, cr3
