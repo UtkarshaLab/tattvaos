@@ -56,7 +56,9 @@
 %include "lib/mem/virt/zswap.asm"
 %include "lib/mem/virt/swap.asm"
 %include "lib/mem/virt/kswapd.asm"
+%include "lib/mem/virt/uaf.asm"
 %include "lib/mem/virt/pf.asm"
+
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
 %include "lib/mem/virt/ipc.asm"

@@ -71,7 +71,9 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/zswap.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/swap.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/kswapd.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/uaf.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pf.asm \
+
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/ipc.asm \
