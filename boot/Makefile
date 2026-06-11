@@ -75,6 +75,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/stack.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pf.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/ept.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/spt.asm \
 
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
