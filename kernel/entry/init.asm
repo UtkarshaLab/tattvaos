@@ -171,6 +171,7 @@ mm_init:
     call swap_init
     call kswapd_init
     call acpi_hotplug_init
+    call sched_affinity_init
     call heap_transition
     call kmem_cache_init_all
 
