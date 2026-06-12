@@ -21,6 +21,9 @@ extern buddy_start_addr
 extern buddy_metadata
 extern buddy_link_block
 extern buddy_unlink_block
+extern buddy_nodes
+extern buddy_node_count
+extern buddy_load_context
 
 ; -----------------------------------------------------------------------------
 ; buddy_alloc — allocates a power-of-two block of pages of the requested order
@@ -32,6 +35,64 @@ extern buddy_unlink_block
 ; -----------------------------------------------------------------------------
 global buddy_alloc
 buddy_alloc:
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r12
+    push r13
+
+    mov r12, rdi                    ; R12 = requested order
+    xor r13, r13                    ; R13 = current node index i = 0
+
+.loop:
+    cmp r13, [buddy_node_count]
+    jae .oom
+
+    ; Check if node is active
+    mov rax, r13
+    imul rax, buddy_node_t_size
+    mov rax, [buddy_nodes + rax + buddy_node_t.flags]
+    test rax, rax
+    jz .next_node
+
+    ; Load node context
+    mov rax, r13
+    call buddy_load_context
+
+    ; Try allocation on this node
+    mov rdi, r12
+    call buddy_alloc_internal
+    test rax, rax
+    jnz .success                    ; If RAX != 0, allocation succeeded!
+
+.next_node:
+    inc r13
+    jmp .loop
+
+.success:
+    pop r13
+    pop r12
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+.oom:
+    xor rax, rax
+    pop r13
+    pop r12
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+buddy_alloc_internal:
     push rbx
     push rcx
     push rdx
