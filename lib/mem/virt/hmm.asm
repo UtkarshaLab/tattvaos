@@ -57,6 +57,10 @@ extern virt_unmap
 extern pat_find_entry
 extern kernel_end
 extern phys_state
+extern virt_walk_table
+extern phys_alloc_page
+extern phys_free_page
+extern memzero
 
 ; -----------------------------------------------------------------------------
 ; is_valid_bar_phys_addr — Verifies target physical address does not overlap kernel
@@ -307,6 +311,231 @@ hmm_unmap_bar:
     call vma_destroy
 
 .done:
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; hmm_handle_page_fault — Handles CPU page faults in HMM Unified Memory areas
+; Input:
+;   RDI = faulting virtual address (page-aligned)
+;   RSI = pointer to VMA structure
+;   RDX = exception error code
+; Output:
+;   RAX = 1 on success, 0 on failure
+; -----------------------------------------------------------------------------
+global hmm_handle_page_fault
+hmm_handle_page_fault:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; r12 = vaddr (aligned)
+    mov r13, rsi                    ; r13 = VMA pointer
+    mov r14, rdx                    ; r14 = error code
+
+    ; 1. Walk the page table to check if there is an existing mapping
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE pointer, RDX = level
+    test rax, rax
+    jz .first_touch                 ; if no PTE exists, it is a first-time touch allocation
+    cmp rdx, 1                      ; must be leaf level (level 1)
+    jne .fail                       ; invalid level
+
+    mov rbx, rax                    ; RBX = PTE pointer
+    mov r15, [rbx]                  ; R15 = PTE value
+
+    ; 2. Check if the page resides in GPU VRAM (PAGE_GPU_VRAM set, PAGE_PRESENT clear)
+    test r15, PAGE_GPU_VRAM
+    jz .first_touch                 ; not in GPU, maybe unallocated first touch
+
+    ; Page is resident in GPU VRAM. Migrate page from GPU -> Host RAM.
+    ; A. Extract GPU VRAM physical page address from the PTE
+    mov r8, r15
+    mov rcx, 0xFFFFFFFFFFFFF000      ; 40 bits of physical frame address
+    and r8, rcx                     ; R8 = GPU physical page address (source HPA)
+
+    ; B. Allocate a new Host physical RAM page
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov r9, rax                     ; R9 = new Host physical page address (dest HPA)
+
+    ; C. Copy 4KB content from GPU VRAM to Host RAM page
+    push rsi
+    push rdi
+    push rcx
+    mov rdi, r9                    ; destination (Host RAM)
+    mov rsi, r8                    ; source (GPU VRAM)
+    mov rcx, 512                   ; 512 qwords (4096 bytes)
+    cld
+    rep movsq
+    pop rcx
+    pop rdi
+    pop rsi
+
+    ; D. Update the PTE: map to host page, clear PAGE_GPU_VRAM, set PAGE_PRESENT
+    mov rcx, r15
+    and rcx, 0xFFF                  ; preserve lower 12 flags
+    mov r10, (1 << 63)
+    and r10, r15
+    or rcx, r10                     ; preserve NX
+
+    and rcx, ~PAGE_GPU_VRAM         ; clear GPU residency flag
+    or rcx, PAGE_PRESENT            ; mark present on Host CPU
+    or rcx, PAGE_WRITABLE           ; ensure writable if VMA is writable
+    or rcx, r9                      ; set new physical page base (Host RAM)
+
+    mov [rbx], rcx                  ; write new PTE value
+
+    ; E. Invalidate local TLB for this virtual address
+    invlpg [r12]
+
+    mov rax, 1                      ; return success
+    jmp .exit
+
+.first_touch:
+    ; First-time access: Allocate a clean page in Host RAM
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov rbx, rax                    ; RBX = allocated physical page address
+
+    ; Zero-initialize the page
+    mov rdi, rbx
+    mov rsi, 4096
+    call memzero
+
+    ; Map the virtual address to the new host page
+    mov rdx, [r13 + 16]             ; RDX = vma->flags
+    xor rsi, rsi                    ; RSI = paging flags
+    test rdx, VMA_WRITE
+    jz .no_write
+    or rsi, PAGE_WRITABLE
+.no_write:
+    test rdx, VMA_USER
+    jz .no_user
+    or rsi, PAGE_USER
+.no_user:
+    or rsi, PAGE_PRESENT
+    or rsi, PAGE_NX                 ; default no-execute for data
+
+    mov rdi, r12                    ; virtual address
+    mov rdx, rsi                    ; mapping flags
+    mov rsi, rbx                    ; physical address
+    call virt_map
+    test rax, rax
+    jz .fail_free_page
+
+    mov rax, 1                      ; return success
+    jmp .exit
+
+.fail_free_page:
+    mov rdi, rbx
+    call phys_free_page
+.fail:
+    xor rax, rax                    ; return failure
+.exit:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; hmm_migrate_to_gpu — Migrates page from Host RAM to GPU VRAM
+; Input:
+;   RDI = virtual address of page (must be 4KB page-aligned)
+;   RSI = physical address in GPU VRAM (must be 4KB page-aligned)
+; Output:
+;   RAX = 1 on success, 0 on failure
+; -----------------------------------------------------------------------------
+global hmm_migrate_to_gpu
+hmm_migrate_to_gpu:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; r12 = virtual address
+    mov r13, rsi                    ; r13 = destination GPU VRAM physical page address
+
+    ; 1. Validate inputs
+    test r12, r12
+    jz .fail
+    test r13, r13
+    jz .fail
+    test r12, 4095
+    jnz .fail
+    test r13, 4095
+    jnz .fail
+
+    ; 2. Walk host page tables to find the PTE
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = PTE pointer, RDX = level
+    test rax, rax
+    jz .fail
+    cmp rdx, 1                      ; must be leaf level
+    jne .fail
+
+    mov rbx, rax                    ; RBX = PTE pointer
+    mov r15, [rbx]                  ; R15 = current PTE value
+
+    test r15, PAGE_PRESENT
+    jz .fail                        ; must be present in Host RAM to migrate!
+
+    ; 3. Extract the current Host Physical Address (HPA)
+    mov r14, r15
+    and r14, 0xFFFFFFFFFFFFF000     ; R14 = Host RAM physical page address
+
+    ; 4. Copy 4KB page payload from Host RAM to GPU VRAM
+    push rsi
+    push rdi
+    push rcx
+    mov rdi, r13                    ; destination (GPU VRAM)
+    mov rsi, r14                    ; source (Host RAM)
+    mov rcx, 512                    ; 512 qwords (4096 bytes)
+    cld
+    rep movsq
+    pop rcx
+    pop rdi
+    pop rsi
+
+    ; 5. Update the PTE: clear PAGE_PRESENT, set PAGE_GPU_VRAM, store GPU address
+    mov rcx, r15
+    and rcx, 0xFFF                  ; preserve lower 12 flags
+    mov r10, (1 << 63)
+    and r10, r15
+    or rcx, r10                     ; preserve NX
+
+    and rcx, ~PAGE_PRESENT          ; mark non-present on CPU
+    or rcx, PAGE_GPU_VRAM           ; mark resident in GPU VRAM
+    or rcx, r13                     ; store GPU physical address
+
+    mov [rbx], rcx                  ; write back new PTE
+
+    ; 6. Free the migrated Host RAM page
+    mov rdi, r14
+    call phys_free_page
+
+    ; 7. Invalidate local TLB
+    invlpg [r12]
+
+    mov rax, 1                      ; success
+    jmp .exit
+
+.fail:
+    xor rax, rax                    ; failure
+.exit:
+    pop r15
+    pop r14
     pop r13
     pop r12
     pop rbx
