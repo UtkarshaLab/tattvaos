@@ -113,6 +113,9 @@ extern tsx_spec_walk_engine
 extern trans_cache_lookup
 extern trans_cache_invalidate
 extern trans_cache_flush
+extern pgtable_locks
+extern pgtable_lock_acquire
+extern pgtable_lock_release
 
 
 
@@ -4243,7 +4246,114 @@ test_ctor:
     mov rsi, msg_tsx_spec_walk_test_passed
     call uart_print_str
 
+    ; =========================================================================
+    ; TSX Lock-Free Directory Updates (Lock Elision) Test (Subfeature 25.3)
+    ; =========================================================================
+.tsx_lock_test_start:
+    mov rsi, msg_tsx_lock_test_start
+    call uart_print_str
+
+    ; Step A: Verify Speculative lock-free directory update (Bypass mutex)
+    ; 1. Set current thread to index 0 (TSX enabled)
+    mov qword [current_thread_idx], 0
+
+    ; 2. Calculate lock address to check
+    ; Virtual address = 0xA0000000. PML4 index = (0xA0000000 >> 39) & 0x1FF = 0.
+    ; So it uses pgtable_locks + 0.
+    lea r12, [pgtable_locks]        ; R12 = &pgtable_locks[0]
+    mov byte [r12], 0               ; Make sure it is unlocked
+
+    ; 3. Call pgtable_lock_acquire
+    mov rdi, 0xA0000000
+    call pgtable_lock_acquire
+
+    ; 4. Check results: tsx_active should be 1, but the lock byte MUST remain 0! (lock elision)
+    call sched_get_current_thread   ; RAX = current thread pointer
+    mov rcx, [rax + thread_t.tsx_active]
+    cmp rcx, 1
+    jne .tsx_lock_fail_active
+    
+    mov cl, [r12]
+    cmp cl, 0
+    jne .tsx_lock_fail_bypass
+
+    mov rsi, msg_tsx_lock_bypass_ok
+    call uart_print_str
+
+    ; 5. Call pgtable_lock_release
+    mov rdi, 0xA0000000
+    call pgtable_lock_release
+
+    ; 6. Check results: tsx_active should return to 0, and the lock byte should remain 0
+    call sched_get_current_thread
+    mov rcx, [rax + thread_t.tsx_active]
+    cmp rcx, 0
+    jne .tsx_lock_fail_release_active
+    
+    mov cl, [r12]
+    cmp cl, 0
+    jne .tsx_lock_fail_release_lock
+
+    ; Step B: Verify Traditional lock fallback (when TSX disabled)
+    ; 1. Set current thread to 99 (invalid/inactive) to disable TSX
+    mov qword [current_thread_idx], 99
+
+    ; 2. Call pgtable_lock_acquire
+    mov rdi, 0xA0000000
+    call pgtable_lock_acquire
+
+    ; 3. Check results: lock byte MUST be 1 (traditional lock acquired!)
+    mov cl, [r12]
+    cmp cl, 1
+    jne .tsx_lock_fail_traditional
+
+    mov rsi, msg_tsx_lock_traditional_ok
+    call uart_print_str
+
+    ; 4. Call pgtable_lock_release
+    mov rdi, 0xA0000000
+    call pgtable_lock_release
+
+    ; 5. Check results: lock byte should be cleared back to 0
+    mov cl, [r12]
+    cmp cl, 0
+    jne .tsx_lock_fail_traditional_release
+
+    ; Lock-Free Directory Updates Test PASSED!
+    mov rsi, msg_tsx_lock_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.tsx_lock_fail_active:
+    mov rsi, msg_tsx_lock_fail_active_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_lock_fail_bypass:
+    mov rsi, msg_tsx_lock_fail_bypass_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_lock_fail_release_active:
+    mov rsi, msg_tsx_lock_fail_rel_active_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_lock_fail_release_lock:
+    mov rsi, msg_tsx_lock_fail_rel_lock_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_lock_fail_traditional:
+    mov rsi, msg_tsx_lock_fail_trad_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_lock_fail_traditional_release:
+    mov rsi, msg_tsx_lock_fail_trad_rel_str
+    call uart_print_str
+    jmp .panic
 
 .tsx_spec_walk_fail_vma:
     mov rsi, msg_tsx_spec_walk_fail_vma_str
@@ -6168,6 +6278,18 @@ msg_tsx_spec_walk_fail_init_str:     db "Failure: Initial cache hit on unmapped 
 msg_tsx_spec_walk_fail_lookup_str:   db "Failure: Speculative walk did not cache translation mapping.", 0x0D, 0x0A, 0
 msg_tsx_spec_walk_fail_mismatch_str: db "Failure: Cached physical address does not match page table walk result.", 0x0D, 0x0A, 0
 msg_tsx_spec_walk_fail_inval_str:    db "Failure: Invalidate did not clear cached translation entry.", 0x0D, 0x0A, 0
+
+msg_tsx_lock_test_start:             db "Running TSX Lock-Free Directory Updates (Lock Elision) Tests...", 0x0D, 0x0A, 0
+msg_tsx_lock_bypass_ok:              db "  Lock Elision Success: Speculative block bypassed spinlock write.", 0x0D, 0x0A, 0
+msg_tsx_lock_traditional_ok:         db "  Lock Fallback Success: Traditional lock acquired when TSX disabled.", 0x0D, 0x0A, 0
+msg_tsx_lock_test_passed:            db "TSX Lock-Free Directory Updates Tests PASSED!", 0x0D, 0x0A, 0
+
+msg_tsx_lock_fail_active_str:        db "Failure: Speculative acquire did not set tsx_active to 1.", 0x0D, 0x0A, 0
+msg_tsx_lock_fail_bypass_str:        db "Failure: Speculative acquire modified lock byte (bypass failed).", 0x0D, 0x0A, 0
+msg_tsx_lock_fail_rel_active_str:    db "Failure: Speculative release did not clear tsx_active.", 0x0D, 0x0A, 0
+msg_tsx_lock_fail_rel_lock_str:      db "Failure: Speculative release modified lock byte.", 0x0D, 0x0A, 0
+msg_tsx_lock_fail_trad_str:          db "Failure: Traditional acquire did not set lock byte to 1.", 0x0D, 0x0A, 0
+msg_tsx_lock_fail_trad_rel_str:      db "Failure: Traditional release did not clear lock byte to 0.", 0x0D, 0x0A, 0
 
 
 
