@@ -142,6 +142,7 @@ numa_rank_nodes_for_cpu:
     push r13
     push r14
     push r15
+    sub rsp, 128                    ; Reserve stack space for 8 pairs of (node_id, score)
 
     mov r12, rsi                    ; R12 = dest buffer pointer
     
@@ -171,11 +172,10 @@ numa_rank_nodes_for_cpu:
     mov rsi, rbx
     call numa_compute_affinity_score ; RAX = score
 
-    ; Store (node_id, score) in local stack area (using RSP-16-i*16)
+    ; Store (node_id, score) in local stack area (using RSP + index * 16)
     mov rdx, r14
     shl rdx, 4                      ; index * 16
-    neg rdx
-    lea rdx, [rsp - 16 + rdx]
+    lea rdx, [rsp + rdx]
     mov [rdx], rbx                  ; store node_id
     mov [rdx + 8], rax              ; store score
     inc r14
@@ -208,16 +208,14 @@ numa_rank_nodes_for_cpu:
 
     ; Load pair j
     mov rax, rdx
-    shl rax, 4
-    neg rax
-    lea rax, [rsp - 16 + rax]       ; RAX = &pair[j]
+    shl rax, 4                      ; j * 16
+    lea rax, [rsp + rax]            ; RAX = &pair[j]
 
     ; Load pair j+1
     mov rsi, rdx
     inc rsi
-    shl rsi, 4
-    neg rsi
-    lea rsi, [rsp - 16 + rsi]       ; RSI = &pair[j+1]
+    shl rsi, 4                      ; (j+1) * 16
+    lea rsi, [rsp + rsi]            ; RSI = &pair[j+1]
 
     mov r8, [rax + 8]               ; R8 = score[j]
     mov r9, [rsi + 8]               ; R9 = score[j+1]
@@ -251,9 +249,8 @@ numa_rank_nodes_for_cpu:
     jae .done
 
     mov rax, rcx
-    shl rax, 4
-    neg rax
-    lea rax, [rsp - 16 + rax]
+    shl rax, 4                      ; index * 16
+    lea rax, [rsp + rax]
     mov rsi, [rax]                  ; load node_id
 
     mov [r12 + rcx], sil            ; write node_id byte to dest buffer
@@ -263,6 +260,7 @@ numa_rank_nodes_for_cpu:
 .done:
     mov rax, r14                    ; return count of ranked nodes
 
+    add rsp, 128                    ; Restore stack space
     pop r15
     pop r14
     pop r13
