@@ -68,6 +68,7 @@
 %include "lib/mem/virt/hmm.asm"
 %include "lib/mem/virt/dmabuf.asm"
 %include "lib/mem/virt/gpummu.asm"
+%include "lib/mem/virt/p2pdma.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
