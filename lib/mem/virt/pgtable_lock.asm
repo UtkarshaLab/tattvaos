@@ -22,26 +22,68 @@
 section .text
 
 ; -----------------------------------------------------------------------------
-; pgtable_lock_acquire — acquire spinlock for a PML4 index
+; pgtable_lock_acquire — acquire spinlock for a PML4 index (with TSX lock elision)
 ; Input:
 ;   RDI = virtual address (used to derive PML4 index)
 ; Output: none
 ; Clobbers: RAX, RCX
-; NOTE: Uses PAUSE-based spin wait to reduce bus contention.
 ; -----------------------------------------------------------------------------
 global pgtable_lock_acquire
 pgtable_lock_acquire:
+    push rbx
+    push rdi
+    push r8
+
     ; Derive PML4 index from virtual address: bits 39-47
     mov rcx, rdi
     shr rcx, 39
     and rcx, 0x1FF                  ; RCX = PML4 index (0-511)
 
     ; Calculate lock byte address: &pgtable_locks[index]
-    lea rax, [pgtable_locks]
-    add rax, rcx                    ; RAX = &lock_byte
+    lea r8, [pgtable_locks]
+    add r8, rcx                     ; R8 = &lock_byte
 
+    ; Check if there is an active thread
+    extern sched_get_current_thread
+    call sched_get_current_thread   ; RAX = current thread pointer
+    test rax, rax
+    jz .traditional_lock            ; if no current thread, bypass TSX
+
+    ; Try entering Speculative block
+    ; Fallback path is .tsx_fallback
+    extern tsx_begin
+    push rax
+    push rcx
+    push r8
+    lea rdi, [.tsx_fallback]
+    lea rsi, [.tsx_fallback]
+    call tsx_begin
+    pop r8
+    pop rcx
+    pop rax
+
+    ; We are in transactional state!
+    ; Check if lock is already held
+    cmp byte [r8], 0
+    jne .tsx_abort_explicit
+
+    ; Lock is free. Return success without setting lock byte!
+    pop r8
+    pop rdi
+    pop rbx
+    ret
+
+.tsx_abort_explicit:
+    ; Lock busy, explicitly abort and fall back
+    extern tsx_end
+    call tsx_end                    ; reset tsx active status
+
+.tsx_fallback:
+    ; If abort/fallback, we execute traditional locking on r8
+
+.traditional_lock:
+    mov rax, r8                     ; RAX = &lock_byte
 .spin:
-    ; Try to atomically set the lock byte to 1 by swapping
     mov al, 1
     xchg [rax], al                  ; swap AL and lock byte (implicit LOCK)
     test al, al                     ; check if it was 0 (unlocked)
@@ -56,10 +98,13 @@ pgtable_lock_acquire:
     jmp .spin                       ; lock released, try again
  
 .acquired:
+    pop r8
+    pop rdi
+    pop rbx
     ret
 
 ; -----------------------------------------------------------------------------
-; pgtable_lock_release — release spinlock for a PML4 index
+; pgtable_lock_release — release spinlock for a PML4 index (with TSX lock elision)
 ; Input:
 ;   RDI = virtual address (used to derive PML4 index)
 ; Output: none
@@ -67,6 +112,24 @@ pgtable_lock_acquire:
 ; -----------------------------------------------------------------------------
 global pgtable_lock_release
 pgtable_lock_release:
+    push rbx
+    push rdi
+
+    ; Check if thread has TSX active
+    call sched_get_current_thread
+    test rax, rax
+    jz .traditional_release
+
+    mov rbx, [rax + thread_t.tsx_active]
+    test rbx, rbx
+    jz .traditional_release
+
+    ; TSX is active, commit it and bypass lock clear
+    extern tsx_end
+    call tsx_end
+    jmp .done
+
+.traditional_release:
     ; Derive PML4 index from virtual address: bits 39-47
     mov rcx, rdi
     shr rcx, 39
@@ -74,7 +137,10 @@ pgtable_lock_release:
 
     ; Calculate lock byte address and clear it
     lea rax, [pgtable_locks]
-    mov byte [rax + rcx], 0         ; release: simple store (x86 guarantees ordering)
+    mov byte [rax + rcx], 0         ; release: simple store
+.done:
+    pop rdi
+    pop rbx
     ret
 
 ; -----------------------------------------------------------------------------
