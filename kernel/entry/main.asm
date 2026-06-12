@@ -104,6 +104,9 @@ extern leak_tracker_init
 extern heap_leak_report
 extern leak_table
 extern uaf_init
+extern current_thread_idx
+extern tsx_begin
+extern tsx_end
 
 
 
@@ -4074,7 +4077,106 @@ test_ctor:
     cmp rax, 0
     jne .leak_fail_final
 
+    ; =========================================================================
+    ; Hardware Transactional Memory (TSX) Fault Handling Test (Subfeature 25.1)
+    ; =========================================================================
+    jmp .tsx_test_start
+
+.tsx_test_start:
+    mov rsi, msg_tsx_test_start
+    call uart_print_str
+
+    ; Step A: Create a VMA for TSX demand paging test
+    ; start=0x80000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_ONDEMAND (0x83)
+    mov rdi, 0x80000000
+    mov rsi, 4096
+    mov rdx, 0x83                   ; VMA_READ | VMA_WRITE | VMA_ONDEMAND
+    call vma_create
+    test rax, rax
+    jz .tsx_test_fail_vma
+
+    ; Step B: Set current thread to index 0 (Thread 100)
+    mov qword [current_thread_idx], 0
+
+    ; Step C: Enter TSX transaction (Success Case)
+    ; Fallback path is .tsx_success_fallback
+    lea rdi, [.tsx_success_transaction]
+    lea rsi, [.tsx_success_fallback]
+    call tsx_begin
+
+.tsx_success_transaction:
+    ; Access the demand-paging address. This should trigger a page fault!
+    ; Since it's inside TSX, the fault handler will resolve it and redirect RIP to .tsx_success_transaction.
+    ; On the retry, the access will succeed without a fault!
+    mov rdi, 0x80000000
+    mov byte [rdi], 0xAA
+
+    ; Commit transaction
+    call tsx_end
+
+    ; Verify data was written correctly
+    mov al, [0x80000000]
+    cmp al, 0xAA
+    jne .tsx_test_fail_data
+
+    mov rsi, msg_tsx_success_ok
+    call uart_print_str
+    jmp .tsx_run_abort_case
+
+.tsx_success_fallback:
+    ; We should not reach here in the success case
+    mov rsi, msg_tsx_fail_success_fallback
+    call uart_print_str
+    jmp .panic
+
+.tsx_run_abort_case:
+    ; Step D: Enter TSX transaction (Abort Fallback Case)
+    ; We access an unmapped address 0x90000000 (no VMA).
+    ; This should abort the transaction and redirect RIP to the fallback handler .tsx_abort_fallback.
+    lea rdi, [.tsx_abort_transaction]
+    lea rsi, [.tsx_abort_fallback]
+    call tsx_begin
+
+.tsx_abort_transaction:
+    mov rdi, 0x90000000
+    mov al, [rdi]                   ; Unresolvable page fault!
+
+    ; We should never reach here because the handler redirects RIP to fallback
+    mov rsi, msg_tsx_fail_no_abort
+    call uart_print_str
+    jmp .panic
+
+.tsx_abort_fallback:
+    ; This is the expected path for the abort case!
+    mov rsi, msg_tsx_abort_ok
+    call uart_print_str
+
+    ; Clean up the TSX VMA
+    mov rdi, 0x80000000
+    call virt_translate
+    mov r14, rax                    ; physical address
+
+    mov rdi, 0x80000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+
+    ; TSX Test PASSED!
+    mov rsi, msg_tsx_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.tsx_test_fail_vma:
+    mov rsi, msg_tsx_test_fail_vma
+    call uart_print_str
+    jmp .panic
+
+.tsx_test_fail_data:
+    mov rsi, msg_tsx_test_fail_data
+    call uart_print_str
+    jmp .panic
 
     ; =========================================================================
     ; Use-After-Free (UAF) Trap Tests (Subfeature 19.2)
@@ -5945,6 +6047,16 @@ msg_uaf_test_start:             db "Running VMM Use-After-Free Trap Tests...", 0
 msg_uaf_fail_alloc_str:         db "Failure: Could not allocate physical page for UAF test.", 0x0D, 0x0A, 0
 msg_uaf_fail_map_str:           db "Failure: Could not map page for UAF test.", 0x0D, 0x0A, 0
 msg_uaf_fail_trap:              db "Failure: Access to freed memory did not trigger UAF Trap panic.", 0x0D, 0x0A, 0
+
+msg_tsx_test_start:            db "Running VMM TSX Fault Handling Tests...", 0x0D, 0x0A, 0
+msg_tsx_success_ok:            db "  TSX Success Case: Transaction successfully retried and committed.", 0x0D, 0x0A, 0
+msg_tsx_abort_ok:              db "  TSX Abort Case: Unresolvable fault successfully redirected to fallback.", 0x0D, 0x0A, 0
+msg_tsx_test_passed:           db "VMM TSX Fault Handling Tests PASSED!", 0x0D, 0x0A, 0
+
+msg_tsx_test_fail_vma:         db "Failure: Could not create TSX VMA.", 0x0D, 0x0A, 0
+msg_tsx_test_fail_data:        db "Failure: TSX success case data mismatch.", 0x0D, 0x0A, 0
+msg_tsx_fail_success_fallback: db "Failure: TSX success case entered fallback path.", 0x0D, 0x0A, 0
+msg_tsx_fail_no_abort:         db "Failure: Unresolvable fault did not abort transaction to fallback.", 0x0D, 0x0A, 0
 
 
 
