@@ -116,6 +116,8 @@ extern trans_cache_flush
 extern pgtable_locks
 extern pgtable_lock_acquire
 extern pgtable_lock_release
+extern hle_protect_range
+extern hle_is_cache_aligned
 
 
 
@@ -4323,7 +4325,122 @@ test_ctor:
     mov rsi, msg_tsx_lock_test_passed
     call uart_print_str
 
+    jmp .hle_test_start
+
+    ; =========================================================================
+    ; Hardware Lock Elision (HLE) Protection Test (Subfeature 25.4)
+    ; =========================================================================
+.hle_test_start:
+    mov rsi, msg_hle_test_start
+    call uart_print_str
+
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .hle_fail_alloc
+    mov r12, rax                    ; R12 = physical page
+
+    ; 2. Map page to virtual address 0xC0000000 with cache disabled & write-through flags
+    ; Flags: PAGE_PRESENT (1) | PAGE_WRITABLE (2) | PAGE_PWT (8) | PAGE_PCD (16) = 27 = 0x1B
+    mov rdi, 0xC0000000
+    mov rsi, r12
+    mov rdx, 0x1B
+    call virt_map
+    test rax, rax
+    jz .hle_fail_map
+
+    ; 3. Verify page is mapped and has PWT and PCD set
+    mov rdi, 0xC0000000
+    mov rsi, 0                      ; current CR3
+    call virt_walk_table            ; RAX = physical address of PTE
+    test rax, rax
+    jz .hle_fail_walk1
+
+    mov rcx, [rax]
+    test rcx, 0x18                  ; 0x18 = PAGE_PWT | PAGE_PCD
+    jz .hle_fail_flags1             ; failure if either flag is missing
+
+    ; 4. Call hle_protect_range to clear caching flags (enforcing WB caching)
+    mov rdi, 0xC0000000
+    mov rsi, 4096                   ; 1 page
+    call hle_protect_range
+
+    ; 5. Verify page table entry has PWT and PCD cleared to 0 (Write-Back)
+    mov rdi, 0xC0000000
+    mov rsi, 0                      ; current CR3
+    call virt_walk_table            ; RAX = physical address of PTE
+    test rax, rax
+    jz .hle_fail_walk2
+
+    mov rcx, [rax]
+    test rcx, 0x18                  ; 0x18 = PAGE_PWT | PAGE_PCD
+    jnz .hle_fail_flags2            ; failure if flags are still set
+
+    ; 6. Clean up mapping
+    mov rdi, 0xC0000000
+    call virt_unmap
+
+    mov rdi, r12
+    call phys_free_page
+
+    ; 7. Test cache line alignment checker (hle_is_cache_aligned)
+    ; Aligned address (multiple of 64): 0x1000
+    mov rdi, 0x1000
+    call hle_is_cache_aligned
+    cmp rax, 1
+    jne .hle_fail_align1
+
+    ; Unaligned address: 0x1005
+    mov rdi, 0x1005
+    call hle_is_cache_aligned
+    cmp rax, 0
+    jne .hle_fail_align2
+
+    ; HLE Protection & Caching Test PASSED!
+    mov rsi, msg_hle_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.hle_fail_alloc:
+    mov rsi, msg_hle_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_map:
+    mov rsi, msg_hle_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_walk1:
+    mov rsi, msg_hle_fail_walk1_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_flags1:
+    mov rsi, msg_hle_fail_flags1_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_walk2:
+    mov rsi, msg_hle_fail_walk2_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_flags2:
+    mov rsi, msg_hle_fail_flags2_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_align1:
+    mov rsi, msg_hle_fail_align1_str
+    call uart_print_str
+    jmp .panic
+
+.hle_fail_align2:
+    mov rsi, msg_hle_fail_align2_str
+    call uart_print_str
+    jmp .panic
 
 .tsx_lock_fail_active:
     mov rsi, msg_tsx_lock_fail_active_str
@@ -6290,6 +6407,17 @@ msg_tsx_lock_fail_rel_active_str:    db "Failure: Speculative release did not cl
 msg_tsx_lock_fail_rel_lock_str:      db "Failure: Speculative release modified lock byte.", 0x0D, 0x0A, 0
 msg_tsx_lock_fail_trad_str:          db "Failure: Traditional acquire did not set lock byte to 1.", 0x0D, 0x0A, 0
 msg_tsx_lock_fail_trad_rel_str:      db "Failure: Traditional release did not clear lock byte to 0.", 0x0D, 0x0A, 0
+
+msg_hle_test_start:            db "Running HLE Protection & Caching Tests...", 0x0D, 0x0A, 0
+msg_hle_test_passed:           db "HLE Protection & Caching Tests PASSED!", 0x0D, 0x0A, 0
+msg_hle_fail_alloc_str:        db "Failure: Could not allocate page for HLE test.", 0x0D, 0x0A, 0
+msg_hle_fail_map_str:          db "Failure: Could not map page for HLE test.", 0x0D, 0x0A, 0
+msg_hle_fail_walk1_str:        db "Failure: Initial walk failed for HLE test.", 0x0D, 0x0A, 0
+msg_hle_fail_flags1_str:       db "Failure: Caching flags not set on map for HLE test.", 0x0D, 0x0A, 0
+msg_hle_fail_walk2_str:        db "Failure: Post-protect walk failed for HLE test.", 0x0D, 0x0A, 0
+msg_hle_fail_flags2_str:       db "Failure: hle_protect_range did not clear cache flags.", 0x0D, 0x0A, 0
+msg_hle_fail_align1_str:       db "Failure: hle_is_cache_aligned returned 0 for aligned address.", 0x0D, 0x0A, 0
+msg_hle_fail_align2_str:       db "Failure: hle_is_cache_aligned returned 1 for unaligned address.", 0x0D, 0x0A, 0
 
 
 
