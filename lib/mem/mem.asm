@@ -65,6 +65,7 @@
 %include "lib/mem/virt/eve.asm"
 %include "lib/mem/virt/pml.asm"
 %include "lib/mem/virt/nested.asm"
+%include "lib/mem/virt/hmm.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
