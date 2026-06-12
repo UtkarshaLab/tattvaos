@@ -84,7 +84,8 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/dmabuf.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/gpummu.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/p2pdma.asm \
-                          $(KERNEL_DIR)/../lib/mem/virt/hmm_metrics.asm \
+                           $(KERNEL_DIR)/../lib/mem/virt/hmm_metrics.asm \
+                           $(KERNEL_DIR)/../lib/mem/virt/acpi_hotplug.asm \
 
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
