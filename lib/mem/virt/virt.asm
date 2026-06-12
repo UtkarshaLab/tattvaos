@@ -23,6 +23,7 @@ struc vma_t
 endstruc
 
 VMA_FILE        equ (1 << 8)    ; Bind storage file directly to VMA
+VMA_HMM         equ (1 << 9)    ; VMA flag for HMM Unified Memory
 
 
 section .text
