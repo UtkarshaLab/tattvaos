@@ -80,6 +80,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                           $(KERNEL_DIR)/../lib/mem/virt/eve.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/pml.asm \
                           $(KERNEL_DIR)/../lib/mem/virt/nested.asm \
+                          $(KERNEL_DIR)/../lib/mem/virt/hmm.asm \
 
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
