@@ -107,6 +107,12 @@ extern uaf_init
 extern current_thread_idx
 extern tsx_begin
 extern tsx_end
+extern tsx_log_init
+extern tsx_log_address
+extern tsx_spec_walk_engine
+extern trans_cache_lookup
+extern trans_cache_invalidate
+extern trans_cache_flush
 
 
 
@@ -4166,7 +4172,103 @@ test_ctor:
     mov rsi, msg_tsx_test_passed
     call uart_print_str
 
+    ; =========================================================================
+    ; TSX Speculative Directory Walk Engine Test (Subfeature 25.2)
+    ; =========================================================================
+.tsx_spec_walk_test_start:
+    mov rsi, msg_tsx_spec_walk_test_start
+    call uart_print_str
+
+    ; 1. Initialise the transaction log
+    call tsx_log_init
+
+    ; 2. Create a VMA for our test address (0x85000000)
+    ; start=0x85000000, size=4096, flags=VMA_READ|VMA_WRITE|VMA_ONDEMAND (0x83)
+    mov rdi, 0x85000000
+    mov rsi, 4096
+    mov rdx, 0x83                   ; VMA_READ | VMA_WRITE | VMA_ONDEMAND
+    call vma_create
+    test rax, rax
+    jz .tsx_spec_walk_fail_vma
+    mov r12, rax                    ; R12 = VMA pointer
+
+    ; 3. Cache flush
+    call trans_cache_flush
+
+    ; 4. Log the test address (not yet present/mapped in page tables)
+    mov rdi, 0x85000000
+    call tsx_log_address
+
+    ; 5. Verify that it is NOT in the cache before walk
+    mov rdi, 0x85000000
+    call trans_cache_lookup
+    test rax, rax
+    jnz .tsx_spec_walk_fail_initial_cache
+
+    ; 6. Run the speculative walk engine. It should read the log, see 0x85000000 is not present,
+    ; speculatively map it (via virt_page_fault_handler), and load it into the translation cache.
+    call tsx_spec_walk_engine
+
+    ; 7. Verify that 0x85000000 IS now present in the cache and lookup returns its physical address
+    mov rdi, 0x85000000
+    call trans_cache_lookup         ; RAX = physical address
+    test rax, rax
+    jz .tsx_spec_walk_fail_lookup
+
+    ; Let's translate it normally to verify the physical address matches
+    mov r14, rax                    ; R14 = cached physical address
+    mov rdi, 0x85000000
+    call virt_translate             ; RAX = translated physical address
+    cmp rax, r14
+    jne .tsx_spec_walk_fail_mismatch
+
+    ; 8. Clean up
+    mov rdi, 0x85000000
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+
+    mov rdi, r12
+    call vma_destroy
+
+    ; 9. Invalidate entry and verify it is gone from cache
+    mov rdi, 0x85000000
+    call trans_cache_invalidate
+    mov rdi, 0x85000000
+    call trans_cache_lookup
+    test rax, rax
+    jnz .tsx_spec_walk_fail_invalidate
+
+    mov rsi, msg_tsx_spec_walk_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.tsx_spec_walk_fail_vma:
+    mov rsi, msg_tsx_spec_walk_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_spec_walk_fail_initial_cache:
+    mov rsi, msg_tsx_spec_walk_fail_init_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_spec_walk_fail_lookup:
+    mov rsi, msg_tsx_spec_walk_fail_lookup_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_spec_walk_fail_mismatch:
+    mov rsi, msg_tsx_spec_walk_fail_mismatch_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_spec_walk_fail_invalidate:
+    mov rsi, msg_tsx_spec_walk_fail_inval_str
+    call uart_print_str
+    jmp .panic
 
 .tsx_test_fail_vma:
     mov rsi, msg_tsx_test_fail_vma
@@ -6057,6 +6159,15 @@ msg_tsx_test_fail_vma:         db "Failure: Could not create TSX VMA.", 0x0D, 0x
 msg_tsx_test_fail_data:        db "Failure: TSX success case data mismatch.", 0x0D, 0x0A, 0
 msg_tsx_fail_success_fallback: db "Failure: TSX success case entered fallback path.", 0x0D, 0x0A, 0
 msg_tsx_fail_no_abort:         db "Failure: Unresolvable fault did not abort transaction to fallback.", 0x0D, 0x0A, 0
+
+msg_tsx_spec_walk_test_start:        db "Running TSX Speculative Directory Walk Engine Tests...", 0x0D, 0x0A, 0
+msg_tsx_spec_walk_test_passed:       db "TSX Speculative Directory Walk Engine Tests PASSED!", 0x0D, 0x0A, 0
+
+msg_tsx_spec_walk_fail_vma_str:      db "Failure: Could not create speculative walk VMA.", 0x0D, 0x0A, 0
+msg_tsx_spec_walk_fail_init_str:     db "Failure: Initial cache hit on unmapped address before walk.", 0x0D, 0x0A, 0
+msg_tsx_spec_walk_fail_lookup_str:   db "Failure: Speculative walk did not cache translation mapping.", 0x0D, 0x0A, 0
+msg_tsx_spec_walk_fail_mismatch_str: db "Failure: Cached physical address does not match page table walk result.", 0x0D, 0x0A, 0
+msg_tsx_spec_walk_fail_inval_str:    db "Failure: Invalidate did not clear cached translation entry.", 0x0D, 0x0A, 0
 
 
 
