@@ -26,6 +26,7 @@ VMA_ZFOD        equ (1 << 5)
 VMA_STACK       equ (1 << 6)
 VMA_ONDEMAND    equ (1 << 7)
 VMA_FILE        equ (1 << 8)
+VMA_HMM         equ (1 << 9)
 
 
 ; Page Table Flags (from pgtable.asm)
@@ -241,6 +242,10 @@ virt_page_fault_handler:
     jnz .present_fault
 
     ; --- Non-Present Fault ---
+    ; Check if HMM VMA
+    test rbx, VMA_HMM
+    jnz .hmm_path
+
     ; Check if file-mapped VMA
     test rbx, VMA_FILE
     jnz .file_map_path
@@ -258,6 +263,19 @@ virt_page_fault_handler:
     jnz .stack_grow_path
 
     jmp .do_diagnostics              ; not on-demand, ZFOD, or Stack VMA -> panic
+
+.hmm_path:
+    ; Call handler for HMM page fault
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    mov rdx, r13                    ; error code
+    extern hmm_handle_page_fault
+    call hmm_handle_page_fault
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
 
 .file_map_path:
     ; Call handler for file-mapped paging
