@@ -99,6 +99,7 @@ interrupts_init:
 ; Output: nothing
 ; Clobbers: none
 ; -----------------------------------------------------------------------------
+global register_idt_handler
 register_idt_handler:
     push rax
     push rbx
