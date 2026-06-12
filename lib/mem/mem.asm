@@ -58,6 +58,7 @@
 %include "lib/mem/virt/kswapd.asm"
 %include "lib/mem/virt/uaf.asm"
 %include "lib/mem/virt/sched_affinity.asm"
+%include "lib/mem/virt/spec_walk.asm"
 %include "lib/mem/virt/stack.asm"
 %include "lib/mem/virt/pf.asm"
 %include "lib/mem/virt/ept.asm"
