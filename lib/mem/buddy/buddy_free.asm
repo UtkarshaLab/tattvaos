@@ -22,6 +22,9 @@ extern buddy_end_addr
 extern buddy_metadata
 extern buddy_link_block
 extern buddy_unlink_block
+extern buddy_nodes
+extern buddy_node_count
+extern buddy_load_context
 
 ; -----------------------------------------------------------------------------
 ; buddy_free — frees an allocated block and coalesces it with its buddy if possible
@@ -32,6 +35,64 @@ extern buddy_unlink_block
 ; -----------------------------------------------------------------------------
 global buddy_free
 buddy_free:
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r12
+    push r13
+
+    mov r12, rdi                    ; R12 = address to free
+    xor r13, r13                    ; R13 = index i = 0
+
+.loop:
+    cmp r13, [buddy_node_count]
+    jae .done                       ; if not found, just return silently
+
+    ; Check if node is active
+    mov rax, r13
+    imul rax, buddy_node_t_size
+    lea rbx, [buddy_nodes + rax]
+    
+    mov rax, [rbx + buddy_node_t.flags]
+    test rax, rax
+    jz .next_node
+
+    ; Check if address falls in [start_addr, end_addr)
+    mov rax, [rbx + buddy_node_t.start_addr]
+    cmp r12, rax
+    jb .next_node
+    mov rax, [rbx + buddy_node_t.end_addr]
+    cmp r12, rax
+    jae .next_node
+
+    ; Found the node! Load its context
+    mov rax, r13
+    call buddy_load_context
+
+    ; Free block on this node
+    mov rdi, r12
+    call buddy_free_internal
+    jmp .done
+
+.next_node:
+    inc r13
+    jmp .loop
+
+.done:
+    pop r13
+    pop r12
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    ret
+
+buddy_free_internal:
     push rax
     push rbx
     push rcx
