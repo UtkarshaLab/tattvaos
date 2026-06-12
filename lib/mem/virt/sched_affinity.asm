@@ -21,13 +21,17 @@ extern uart_print_str
 extern uart_print_hex64
 extern uart_print_dec
 
-; Thread Structure Definition (32 bytes)
+; Thread Structure Definition (now 64 bytes)
 struc thread_t
     .thread_id          resq 1      ; Unique thread ID
     .cpu_affinity_mask  resq 1      ; Bitmask of allowed CPUs
     .preferred_node     resd 1      ; Target NUMA node ID
     .current_cpu        resd 1      ; Current execution CPU ID
     .flags              resq 1      ; Thread flags (bit 0 = Active)
+    .tsx_active         resq 1      ; 1 if inside TSX transaction, 0 otherwise
+    .tsx_xbegin_rip     resq 1      ; RIP of XBEGIN checkpoint
+    .tsx_fallback_rip   resq 1      ; RIP of fallback path
+    .tsx_retries        resq 1      ; TSX retry counter
 endstruc
 
 section .text
@@ -129,6 +133,10 @@ sched_register_thread:
     mov [rbx + thread_t.preferred_node], edx
     mov dword [rbx + thread_t.current_cpu], 0
     mov qword [rbx + thread_t.flags], 1      ; Active = 1
+    mov qword [rbx + thread_t.tsx_active], 0
+    mov qword [rbx + thread_t.tsx_xbegin_rip], 0
+    mov qword [rbx + thread_t.tsx_fallback_rip], 0
+    mov qword [rbx + thread_t.tsx_retries], 0
 
     inc qword [thread_count]
     mov rax, rcx
@@ -286,6 +294,70 @@ sched_migrate_threads_for_node:
     ret
 
 ; -----------------------------------------------------------------------------
+; sched_get_current_thread — returns pointer to the currently running thread
+; Output: RAX = pointer to thread_t, or 0 if none
+; -----------------------------------------------------------------------------
+global sched_get_current_thread
+sched_get_current_thread:
+    push rbx
+    mov rax, [current_thread_idx]
+    cmp rax, [thread_count]
+    jae .no_thread
+    imul rax, thread_t_size
+    lea rax, [thread_table + rax]
+    jmp .exit
+.no_thread:
+    xor rax, rax
+.exit:
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; tsx_begin — sets up mock TSX transaction state for the current thread
+; Input:
+;   RDI = xbegin_rip (checkpoint)
+;   RSI = fallback_rip
+; Output: none
+; -----------------------------------------------------------------------------
+global tsx_begin
+tsx_begin:
+    push rax
+    push rbx
+    call sched_get_current_thread
+    test rax, rax
+    jz .done
+    
+    ; If already active (re-entering on retry), do not overwrite retries
+    mov rbx, [rax + thread_t.tsx_active]
+    test rbx, rbx
+    jnz .done
+    
+    mov qword [rax + thread_t.tsx_active], 1
+    mov [rax + thread_t.tsx_xbegin_rip], rdi
+    mov [rax + thread_t.tsx_fallback_rip], rsi
+    mov qword [rax + thread_t.tsx_retries], 0
+.done:
+    pop rbx
+    pop rax
+    ret
+
+; -----------------------------------------------------------------------------
+; tsx_end — commits the mock TSX transaction for the current thread
+; Output: none
+; -----------------------------------------------------------------------------
+global tsx_end
+tsx_end:
+    push rax
+    call sched_get_current_thread
+    test rax, rax
+    jz .done
+    mov qword [rax + thread_t.tsx_active], 0
+    mov qword [rax + thread_t.tsx_retries], 0
+.done:
+    pop rax
+    ret
+
+; -----------------------------------------------------------------------------
 ; Data Section
 ; -----------------------------------------------------------------------------
 section .data
@@ -293,9 +365,13 @@ section .data
 global cpu_to_node
 global thread_count
 global thread_table
+global current_thread_idx
 
 align 8
 thread_count:   dq 0
+
+align 8
+current_thread_idx: dq 0
 
 ; Array mapping CPU cores to NUMA node IDs
 align 16
