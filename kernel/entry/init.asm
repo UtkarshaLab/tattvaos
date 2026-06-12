@@ -172,6 +172,7 @@ mm_init:
     call kswapd_init
     call acpi_hotplug_init
     call sched_affinity_init
+    call kernel_relocate_critical_tables
     call heap_transition
     call kmem_cache_init_all
 
