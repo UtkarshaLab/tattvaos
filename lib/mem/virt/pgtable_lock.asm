@@ -39,15 +39,21 @@ pgtable_lock_acquire:
     shr rcx, 39
     and rcx, 0x1FF                  ; RCX = PML4 index (0-511)
 
-    ; Calculate lock byte address: &pgtable_locks[index]
-    lea r8, [pgtable_locks]
-    add r8, rcx                     ; R8 = &lock_byte
-
     ; Check if there is an active thread
     extern sched_get_current_thread
     call sched_get_current_thread   ; RAX = current thread pointer
     test rax, rax
-    jz .traditional_lock            ; if no current thread, bypass TSX
+    jz .traditional_lock_no_index   ; if no current thread, bypass TSX
+
+    ; Check if abort count for this lock has exceeded limit (e.g. 3)
+    lea r8, [pgtable_lock_abort_counts]
+    mov al, [r8 + rcx]
+    cmp al, 3
+    jae .traditional_lock_no_index   ; if abort count >= 3, bypass TSX completely
+
+    ; Calculate lock byte address: &pgtable_locks[index]
+    lea r8, [pgtable_locks]
+    add r8, rcx                     ; R8 = &lock_byte
 
     ; Try entering Speculative block
     ; Fallback path is .tsx_fallback
@@ -79,7 +85,22 @@ pgtable_lock_acquire:
     call tsx_end                    ; reset tsx active status
 
 .tsx_fallback:
-    ; If abort/fallback, we execute traditional locking on r8
+    ; Recalculate PML4 index in case registers were clobbered
+    mov rcx, rdi
+    shr rcx, 39
+    and rcx, 0x1FF
+
+    ; Increment the abort count for this lock
+    lea r9, [pgtable_lock_abort_counts]
+    inc byte [r9 + rcx]
+
+.traditional_lock_no_index:
+    ; Recalculate lock address: R8 = &pgtable_locks[PML4 index]
+    mov rcx, rdi
+    shr rcx, 39
+    and rcx, 0x1FF
+    lea r8, [pgtable_locks]
+    add r8, rcx
 
 .traditional_lock:
     mov rax, r8                     ; RAX = &lock_byte
@@ -125,6 +146,13 @@ pgtable_lock_release:
     jz .traditional_release
 
     ; TSX is active, commit it and bypass lock clear
+    ; Reset abort count to 0 since transaction succeeded!
+    mov rcx, rdi
+    shr rcx, 39
+    and rcx, 0x1FF
+    lea rbx, [pgtable_lock_abort_counts]
+    mov byte [rbx + rcx], 0
+
     extern tsx_end
     call tsx_end
     jmp .done
@@ -138,6 +166,14 @@ pgtable_lock_release:
     ; Calculate lock byte address and clear it
     lea rax, [pgtable_locks]
     mov byte [rax + rcx], 0         ; release: simple store
+
+    ; Decay the abort count on traditional release (adaptive back-off)
+    lea rax, [pgtable_lock_abort_counts]
+    mov dl, [rax + rcx]
+    test dl, dl
+    jz .done
+    dec dl
+    mov [rax + rcx], dl
 .done:
     pop rdi
     pop rbx
@@ -150,5 +186,9 @@ section .bss
 
 align 64                            ; cache-line aligned to reduce false sharing
 pgtable_locks: resb 512             ; 0 = unlocked, 1 = locked
+
+align 64
+global pgtable_lock_abort_counts
+pgtable_lock_abort_counts: resb 512 ; tracks consecutive aborts per PML4 lock
 
 %endif ; LIB_MEM_VIRT_PGTABLE_LOCK_ASM
