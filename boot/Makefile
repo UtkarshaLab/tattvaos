@@ -89,6 +89,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                            $(KERNEL_DIR)/../lib/mem/virt/sched_affinity.asm \
                            $(KERNEL_DIR)/../lib/mem/virt/kernel_relocator.asm \
                            $(KERNEL_DIR)/../lib/mem/virt/zone_transition.asm \
+                           $(KERNEL_DIR)/../lib/mem/virt/locality_scorer.asm \
 
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
