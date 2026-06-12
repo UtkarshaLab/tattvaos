@@ -87,6 +87,7 @@ $(KERNEL_DIR)/kernel.bin: $(KERNEL_DIR)/entry.asm $(KERNEL_DIR)/entry/start.asm 
                            $(KERNEL_DIR)/../lib/mem/virt/hmm_metrics.asm \
                            $(KERNEL_DIR)/../lib/mem/virt/acpi_hotplug.asm \
                            $(KERNEL_DIR)/../lib/mem/virt/sched_affinity.asm \
+                           $(KERNEL_DIR)/../lib/mem/virt/kernel_relocator.asm \
 
                           $(KERNEL_DIR)/../lib/mem/virt/replacement.asm \
                           $(KERNEL_DIR)/../storage/ummapf/mmap.asm \
