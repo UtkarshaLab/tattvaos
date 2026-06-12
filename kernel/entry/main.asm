@@ -118,6 +118,7 @@ extern pgtable_lock_acquire
 extern pgtable_lock_release
 extern hle_protect_range
 extern hle_is_cache_aligned
+extern pgtable_lock_abort_counts
 
 
 
@@ -4400,7 +4401,159 @@ test_ctor:
     mov rsi, msg_hle_test_passed
     call uart_print_str
 
+    jmp .tsx_fallback_lock_test_start
+
+    ; =========================================================================
+    ; TSX Fallback Page-Directory Lock Manager Test (Subfeature 25.5)
+    ; =========================================================================
+.tsx_fallback_lock_test_start:
+    mov rsi, msg_tsx_fallback_lock_test_start
+    call uart_print_str
+
+    ; 1. Set current thread to index 0 (TSX enabled)
+    mov qword [current_thread_idx], 0
+
+    ; 2. Initialize lock PML4 index 10 (address = 10 << 39)
+    mov r14, 10
+    shl r14, 39                     ; R14 = test virtual address
+
+    ; Reset lock and abort count
+    lea rbx, [pgtable_locks]
+    mov byte [rbx + 10], 0
+    lea rbx, [pgtable_lock_abort_counts]
+    mov byte [rbx + 10], 0
+
+    ; 3. Verify initial acquire uses TSX (speculative block)
+    mov rdi, r14
+    call pgtable_lock_acquire
+
+    call sched_get_current_thread   ; RAX = current thread pointer
+    mov rcx, [rax + thread_t.tsx_active]
+    cmp rcx, 1
+    jne .tsx_fallback_lock_fail_init_active
+
+    lea rbx, [pgtable_locks]
+    mov cl, [rbx + 10]
+    cmp cl, 0
+    jne .tsx_fallback_lock_fail_init_lock
+
+    ; Release it
+    mov rdi, r14
+    call pgtable_lock_release
+
+    ; 4. Manually set abort count to 3 (simulating exceeding limits)
+    lea rbx, [pgtable_lock_abort_counts]
+    mov byte [rbx + 10], 3
+
+    ; 5. Call pgtable_lock_acquire. It should bypass TSX and use traditional lock!
+    mov rdi, r14
+    call pgtable_lock_acquire
+
+    ; Verify: tsx_active should be 0, and the lock byte MUST be 1
+    call sched_get_current_thread   ; RAX = current thread pointer
+    mov rcx, [rax + thread_t.tsx_active]
+    cmp rcx, 0
+    jne .tsx_fallback_lock_fail_bypass_active
+
+    lea rbx, [pgtable_locks]
+    mov cl, [rbx + 10]
+    cmp cl, 1
+    jne .tsx_fallback_lock_fail_bypass_lock
+
+    mov rsi, msg_tsx_fallback_lock_limit_ok
+    call uart_print_str
+
+    ; 6. Call pgtable_lock_release.
+    ; It should traditionally release the lock, decay the abort count to 2, and clear the lock byte to 0.
+    mov rdi, r14
+    call pgtable_lock_release
+
+    lea rbx, [pgtable_locks]
+    mov cl, [rbx + 10]
+    cmp cl, 0
+    jne .tsx_fallback_lock_fail_decay_lock
+
+    lea rbx, [pgtable_lock_abort_counts]
+    mov cl, [rbx + 10]
+    cmp cl, 2
+    jne .tsx_fallback_lock_fail_decay_count
+
+    mov rsi, msg_tsx_fallback_lock_decay_ok
+    call uart_print_str
+
+    ; 7. Call pgtable_lock_acquire again. Since count is 2 (which is < 3), it should try TSX again!
+    mov rdi, r14
+    call pgtable_lock_acquire
+
+    call sched_get_current_thread   ; RAX = current thread pointer
+    mov rcx, [rax + thread_t.tsx_active]
+    cmp rcx, 1
+    jne .tsx_fallback_lock_fail_retry_active
+
+    lea rbx, [pgtable_locks]
+    mov cl, [rbx + 10]
+    cmp cl, 0
+    jne .tsx_fallback_lock_fail_retry_lock
+
+    ; 8. Call pgtable_lock_release. It should reset the abort count to 0.
+    mov rdi, r14
+    call pgtable_lock_release
+
+    lea rbx, [pgtable_lock_abort_counts]
+    mov cl, [rbx + 10]
+    cmp cl, 0
+    jne .tsx_fallback_lock_fail_final_count
+
+    ; TSX Fallback Lock Manager Tests PASSED!
+    mov rsi, msg_tsx_fallback_lock_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.tsx_fallback_lock_fail_init_active:
+    mov rsi, msg_tsx_fallback_lock_fail_init_active_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_init_lock:
+    mov rsi, msg_tsx_fallback_lock_fail_init_lock_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_bypass_active:
+    mov rsi, msg_tsx_fallback_lock_fail_bypass_active_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_bypass_lock:
+    mov rsi, msg_tsx_fallback_lock_fail_bypass_lock_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_decay_lock:
+    mov rsi, msg_tsx_fallback_lock_fail_decay_lock_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_decay_count:
+    mov rsi, msg_tsx_fallback_lock_fail_decay_count_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_retry_active:
+    mov rsi, msg_tsx_fallback_lock_fail_retry_active_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_retry_lock:
+    mov rsi, msg_tsx_fallback_lock_fail_retry_lock_str
+    call uart_print_str
+    jmp .panic
+
+.tsx_fallback_lock_fail_final_count:
+    mov rsi, msg_tsx_fallback_lock_fail_final_count_str
+    call uart_print_str
+    jmp .panic
 
 .hle_fail_alloc:
     mov rsi, msg_hle_fail_alloc_str
@@ -6418,6 +6571,21 @@ msg_hle_fail_walk2_str:        db "Failure: Post-protect walk failed for HLE tes
 msg_hle_fail_flags2_str:       db "Failure: hle_protect_range did not clear cache flags.", 0x0D, 0x0A, 0
 msg_hle_fail_align1_str:       db "Failure: hle_is_cache_aligned returned 0 for aligned address.", 0x0D, 0x0A, 0
 msg_hle_fail_align2_str:       db "Failure: hle_is_cache_aligned returned 1 for unaligned address.", 0x0D, 0x0A, 0
+
+msg_tsx_fallback_lock_test_start:          db "Running TSX Fallback Page-Directory Lock Manager Tests...", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_limit_ok:            db "  Fallback Success: Traditional spinlock acquired when limits exceeded.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_decay_ok:            db "  Decay Success: Abort count decayed and lock released traditionally.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_test_passed:          db "TSX Fallback Page-Directory Lock Manager Tests PASSED!", 0x0D, 0x0A, 0
+
+msg_tsx_fallback_lock_fail_init_active_str:    db "Failure: Speculative acquire did not set tsx_active on clean lock.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_init_lock_str:      db "Failure: Speculative acquire modified lock byte on clean lock.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_bypass_active_str:  db "Failure: Acquire set tsx_active when abort limits exceeded.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_bypass_lock_str:    db "Failure: Acquire did not write lock byte when abort limits exceeded.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_decay_lock_str:     db "Failure: Traditional release did not clear lock byte.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_decay_count_str:    db "Failure: Traditional release did not decay abort count.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_retry_active_str:   db "Failure: Acquire did not attempt TSX after abort count decayed.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_retry_lock_str:     db "Failure: Acquire modified lock byte after abort count decayed.", 0x0D, 0x0A, 0
+msg_tsx_fallback_lock_fail_final_count_str:    db "Failure: Speculative release did not reset abort count to 0.", 0x0D, 0x0A, 0
 
 
 
