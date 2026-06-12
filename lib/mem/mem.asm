@@ -72,6 +72,7 @@
 %include "lib/mem/virt/hmm_metrics.asm"
 %include "lib/mem/virt/acpi_hotplug.asm"
 %include "lib/mem/virt/sched_affinity.asm"
+%include "lib/mem/virt/kernel_relocator.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
