@@ -43,6 +43,7 @@
 
 %include "lib/mem/virt/sched_affinity.asm"
 %include "lib/mem/virt/spec_walk.asm"
+%include "lib/mem/virt/hle.asm"
 %include "lib/mem/virt/pgtable.asm"
 %include "lib/mem/virt/tlb.asm"
 %include "lib/mem/virt/tlb_shootdown.asm"
