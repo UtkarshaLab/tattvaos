@@ -22,6 +22,11 @@ extern buddy_free_heads
 extern buddy_start_addr
 extern buddy_end_addr
 extern buddy_metadata
+extern buddy_save_context
+extern buddy_load_context
+extern buddy_nodes
+extern buddy_node_count
+extern buddy_active_node_index
 
 ; -----------------------------------------------------------------------------
 ; buddy_link_block — links a block into the free list of a specific order
@@ -214,6 +219,201 @@ buddy_init:
     jmp .partition_loop
 
 .done:
+    ; Save context to slot 0 and mark active
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    xor rax, rax                    ; index 0
+    call buddy_save_context
+    
+    mov qword [buddy_nodes + buddy_node_t.flags], 1
+    mov qword [buddy_node_count], 1
+    mov qword [buddy_active_node_index], 0
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; buddy_generate_node — Instantiates a buddy allocator node for a RAM module
+; Input:
+;   RDI = start address of managed memory region (4KB aligned)
+;   RSI = size of region in bytes
+; Output:
+;   RAX = allocated node index, or -1 if failed
+; -----------------------------------------------------------------------------
+global buddy_generate_node
+buddy_generate_node:
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov r12, rdi                    ; R12 = start_addr
+    mov r13, rsi                    ; R13 = size
+
+    ; 1. Find a free slot in buddy_nodes array
+    xor rbp, rbp                    ; RBP = index i = 0
+.find_slot_loop:
+    cmp rbp, 8
+    jae .fail_no_slot
+
+    mov rax, rbp
+    imul rax, buddy_node_t_size
+    lea rbx, [buddy_nodes + rax]
+    
+    mov rax, [rbx + buddy_node_t.flags]
+    test rax, rax
+    jz .slot_found                  ; found empty slot!
+
+    inc rbp
+    jmp .find_slot_loop
+
+.slot_found:
+    ; RBP = free slot index
+    ; RBX = pointer to buddy_nodes[RBP]
+
+    ; 2. Initialize node boundaries
+    mov [rbx + buddy_node_t.start_addr], r12
+    mov rax, r12
+    add rax, r13
+    mov [rbx + buddy_node_t.end_addr], rax       ; end_addr = start_addr + size
+
+    ; Clear the node's free heads list to zero
+    lea rdi, [rbx + buddy_node_t.free_heads]
+    mov rcx, 12
+    xor rax, rax
+    cld
+    rep stosq                       ; zero free_heads in slot
+
+    ; Calculate page count N = size / 4096
+    mov rax, r13
+    shr rax, 12                     ; RAX = page count (N)
+    mov r14, rax                    ; R14 = N
+
+    ; 3. Allocate metadata array: R14 bytes
+    mov rdi, r14
+    call heap_alloc
+    test rax, rax
+    jz .fail_oom                    ; if allocation fails, return -1 (OOM)
+    mov [rbx + buddy_node_t.metadata], rax
+    mov r15, rax                    ; R15 = pointer to metadata array
+
+    ; Zero metadata array
+    mov rdi, r15
+    xor rsi, rsi
+    mov rdx, r14
+    call memset
+
+    ; 4. Set active context globals to this new node directly
+    mov [buddy_start_addr], r12
+    mov rax, r12
+    add rax, r13
+    mov [buddy_end_addr], rax
+    mov [buddy_metadata], r15
+
+    ; Zero out the global buddy_free_heads for partitioning
+    lea rdi, [buddy_free_heads]
+    mov rcx, 12
+    xor rax, rax
+    rep stosq
+
+    ; Mark this index as active
+    mov [buddy_active_node_index], rbp
+
+    ; 5. Partition the memory region into largest possible buddy blocks
+    ; A = start_addr (R12)
+    ; S = size (R13)
+.partition_loop:
+    cmp r13, 4096                   ; minimum block size is 4KB
+    jb .partition_done
+
+    mov rcx, 11                     ; RCX = order (11 down to 0)
+
+.find_order_loop:
+    mov rax, 1
+    shl rax, cl
+    shl rax, 12                     ; RAX = (1 << RCX) * 4096 (block size in bytes)
+
+    cmp rax, r13
+    ja .next_order
+
+    push rax
+    mov rax, r12
+    xor rdx, rdx
+    pop rbx                         ; RBX = size
+    div rbx
+    test rdx, rdx
+    jz .found_order
+
+.next_order:
+    dec rcx
+    cmp rcx, 0
+    jge .find_order_loop
+    jmp .partition_done
+
+.found_order:
+    mov rdi, r12                    ; RDI = block pointer
+    mov rsi, rcx                    ; RSI = order
+    call buddy_link_block
+
+    ; Update metadata for this block head
+    mov rax, r12
+    sub rax, [buddy_start_addr]
+    shr rax, 12                     ; RAX = page index
+    
+    mov rdx, rcx
+    or rdx, 0x80                    ; free | order
+    mov rbx, [buddy_metadata]
+    mov [rbx + rax], dl             ; metadata[index] = free | order
+
+    ; Advance A and S
+    mov rax, 1
+    shl rax, cl
+    shl rax, 12                     ; RAX = block size
+    add r12, rax                    ; A = A + block_size
+    sub r13, rax                    ; S = S - block_size
+    jmp .partition_loop
+
+.partition_done:
+    ; 6. Save final partitioned state to the slot
+    mov rax, rbp
+    call buddy_save_context
+
+    ; Mark slot as active/enabled
+    mov rax, rbp
+    imul rax, buddy_node_t_size
+    mov qword [buddy_nodes + rax + buddy_node_t.flags], 1
+
+    ; Update buddy_node_count if needed
+    mov rax, rbp
+    inc rax                         ; RAX = index + 1
+    cmp rax, [buddy_node_count]
+    jle .return_index
+    mov [buddy_node_count], rax
+
+.return_index:
+    mov rax, rbp                    ; return node index
+    jmp .exit
+
+.fail_no_slot:
+.fail_oom:
+    mov rax, -1                     ; return -1 on failure
+
+.exit:
     pop r15
     pop r14
     pop r13
