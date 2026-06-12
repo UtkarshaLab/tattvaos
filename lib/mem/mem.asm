@@ -70,6 +70,7 @@
 %include "lib/mem/virt/gpummu.asm"
 %include "lib/mem/virt/p2pdma.asm"
 %include "lib/mem/virt/hmm_metrics.asm"
+%include "lib/mem/virt/acpi_hotplug.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
