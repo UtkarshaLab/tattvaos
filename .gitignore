@@ -1,0 +1,6 @@
+# Build artifacts
+*.img
+*.bin
+*.o
+*.obj
+*.sys
