@@ -74,6 +74,7 @@
 %include "lib/mem/virt/sched_affinity.asm"
 %include "lib/mem/virt/kernel_relocator.asm"
 %include "lib/mem/virt/zone_transition.asm"
+%include "lib/mem/virt/locality_scorer.asm"
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
