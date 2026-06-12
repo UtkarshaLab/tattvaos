@@ -159,6 +159,7 @@ sched_migrate_threads_for_node:
     push rdx
     push rsi
     push rdi
+    push rbp
     push r12
     push r13
     push r14
@@ -275,6 +276,7 @@ sched_migrate_threads_for_node:
     pop r14
     pop r13
     pop r12
+    pop rbp
     pop rdi
     pop rsi
     pop rdx
