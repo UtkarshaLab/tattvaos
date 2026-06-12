@@ -42,6 +42,7 @@ PAGE_NX         equ (1 << 63)
 extern common_isr_handler
 extern uart_print_str
 extern uart_print_hex64
+extern uart_print_dec
 extern vma_find
 extern phys_alloc_page
 extern phys_free_page
@@ -94,7 +95,10 @@ page_fault_isr:
     ; 3. Read original RSP (stack pointer at exception entry)
     mov rdx, [rsp + 152]            ; RDX = original RSP (arg 3)
 
-    ; 4. Call high-level handler
+    ; 4. Pass pointer to return RIP on stack frame as arg 4 (RCX)
+    lea rcx, [rsp + 128]            ; RCX = RIP pointer
+
+    ; 5. Call high-level handler
     call virt_page_fault_handler    ; RAX = 1 if handled, 0 if unhandled
 
     test rax, rax
@@ -158,10 +162,12 @@ virt_page_fault_handler:
     push r12
     push r13
     push r14
+    push r15
 
     mov r12, rdi                    ; R12 = vaddr
     mov r13, rsi                    ; R13 = error_code
     mov r14, rdx                    ; R14 = original RSP
+    mov r15, rcx                    ; R15 = pointer to return RIP on exception stack
 
     ; Check if faulting address is within the kernel stack guard page
     mov rax, r12
@@ -434,6 +440,108 @@ virt_page_fault_handler:
     xor rax, rax
 
 .exit:
+    test rax, rax                   ; was the fault handled?
+    jz .exit_unhandled              ; if not handled, check for TSX abort fallback
+
+    ; --- Handled Page Fault (rax == 1) ---
+    push rcx
+    push rdx
+    extern sched_get_current_thread
+    call sched_get_current_thread   ; RAX = current thread pointer
+    pop rdx
+    pop rcx
+    test rax, rax
+    jz .exit_done
+    
+    mov r8, [rax + thread_t.tsx_active]
+    test r8, r8
+    jz .exit_done
+    
+    ; TSX is active! Intercept the fault
+    mov r9, [rax + thread_t.tsx_retries]
+    inc r9
+    mov [rax + thread_t.tsx_retries], r9
+    
+    cmp r9, 3                       ; limit to 3 retries
+    jae .exit_fallback
+    
+    ; Retry: modify return RIP to tsx_xbegin_rip
+    mov r10, [rax + thread_t.tsx_xbegin_rip]
+    mov [r15], r10                  ; modify RIP on stack frame
+    
+    ; Print diagnostic message
+    push rax
+    push rsi
+    push rdi
+    mov rsi, msg_tsx_retry_prefix
+    call uart_print_str
+    mov rax, r9
+    call uart_print_dec
+    mov rsi, msg_tsx_retry_suffix
+    call uart_print_str
+    pop rdi
+    pop rsi
+    pop rax
+    jmp .exit_done
+
+.exit_fallback:
+    ; Fallback: modify return RIP to tsx_fallback_rip
+    mov r10, [rax + thread_t.tsx_fallback_rip]
+    mov [r15], r10                  ; modify RIP on stack frame
+    
+    ; Reset TSX state
+    mov qword [rax + thread_t.tsx_active], 0
+    mov qword [rax + thread_t.tsx_retries], 0
+    
+    ; Print diagnostic message
+    push rax
+    push rsi
+    push rdi
+    mov rsi, msg_tsx_fallback_msg
+    call uart_print_str
+    pop rdi
+    pop rsi
+    pop rax
+    jmp .exit_done
+
+.exit_unhandled:
+    ; --- Unhandled Page Fault (rax == 0) ---
+    push rcx
+    push rdx
+    extern sched_get_current_thread
+    call sched_get_current_thread   ; RAX = current thread pointer
+    pop rdx
+    pop rcx
+    test rax, rax
+    jz .exit_done
+    
+    mov r8, [rax + thread_t.tsx_active]
+    test r8, r8
+    jz .exit_done
+    
+    ; TSX is active! Abort transaction & redirect to fallback
+    mov r10, [rax + thread_t.tsx_fallback_rip]
+    mov [r15], r10                  ; modify RIP on stack frame
+    
+    ; Reset TSX state
+    mov qword [rax + thread_t.tsx_active], 0
+    mov qword [rax + thread_t.tsx_retries], 0
+    
+    ; Print diagnostic message
+    push rax
+    push rsi
+    push rdi
+    mov rsi, msg_tsx_abort_fallback
+    call uart_print_str
+    pop rdi
+    pop rsi
+    pop rax
+    
+    ; Return 1 (handled via fallback redirection!)
+    mov rax, 1
+
+.exit_done:
+    pop r15
     pop r14
     pop r13
     pop r12
@@ -883,6 +991,11 @@ msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
 msg_uaf_panic_prefix:  db "KERNEL PANIC: Use-After-Free detected at address 0x", 0
 msg_uaf_panic_suffix:  db "! (UAF_TEST_SUCCESS)", 0x0D, 0x0A, 0
 msg_uaf_reason:        db "Use-After-Free Memory Access Violation", 0
+
+msg_tsx_retry_prefix:  db "[TSX] Page Fault resolved, retrying transaction (attempt ", 0
+msg_tsx_retry_suffix:  db ")", 0x0D, 0x0A, 0
+msg_tsx_fallback_msg:  db "[TSX] Page Fault retry limit exceeded, redirecting to fallback handler", 0x0D, 0x0A, 0
+msg_tsx_abort_fallback: db "[TSX] Unresolvable Page Fault inside transaction, aborting and redirecting to fallback", 0x0D, 0x0A, 0
 
 
 align 8
