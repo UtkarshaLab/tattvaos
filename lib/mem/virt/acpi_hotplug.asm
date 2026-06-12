@@ -381,6 +381,18 @@ acpi_handle_hotplug_event:
 
     mov rsi, msg_hotplug_numa_ok
     call uart_print_str
+
+    ; 1. Dynamic Buddy Node Generation (Subfeature 24.2)
+    mov rdi, [acpi_parsed_device + acpi_mem_device_t.phys_addr]
+    mov rsi, [acpi_parsed_device + acpi_mem_device_t.length]
+    extern buddy_generate_node
+    call buddy_generate_node
+
+    ; 2. Thread CPU Affinity Migration (Subfeature 24.3)
+    mov edi, [acpi_parsed_device + acpi_mem_device_t.proximity_domain]
+    extern sched_migrate_threads_for_node
+    call sched_migrate_threads_for_node
+
     jmp .done
 
 .ranges_full:
