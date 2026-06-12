@@ -41,6 +41,8 @@
 %include "lib/mem/numa/numa_detect.asm"
 
 
+%include "lib/mem/virt/sched_affinity.asm"
+%include "lib/mem/virt/spec_walk.asm"
 %include "lib/mem/virt/pgtable.asm"
 %include "lib/mem/virt/tlb.asm"
 %include "lib/mem/virt/tlb_shootdown.asm"
@@ -57,8 +59,6 @@
 %include "lib/mem/virt/swap.asm"
 %include "lib/mem/virt/kswapd.asm"
 %include "lib/mem/virt/uaf.asm"
-%include "lib/mem/virt/sched_affinity.asm"
-%include "lib/mem/virt/spec_walk.asm"
 %include "lib/mem/virt/stack.asm"
 %include "lib/mem/virt/pf.asm"
 %include "lib/mem/virt/ept.asm"
