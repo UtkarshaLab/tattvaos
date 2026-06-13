@@ -4869,7 +4869,123 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .stack_offset_test_start
+
+.stack_offset_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_stack_offset_test_start
+    call uart_print_str
+
+    ; 1. Allocate stack A
+    mov rdi, 16384                  ; 16KB size
+    call thread_stack_alloc
+    test rax, rax
+    jz .stack_offset_fail_alloc
+    mov r12, rax                    ; R12 = stack top A (offsetted)
+
+    ; 2. Allocate stack B
+    mov rdi, 16384                  ; 16KB size
+    call thread_stack_alloc
+    test rax, rax
+    jz .stack_offset_fail_alloc
+    mov r13, rax                    ; R13 = stack top B (offsetted)
+
+    ; 3. Verify alignment (must be 16-byte aligned)
+    test r12, 15
+    jnz .stack_offset_fail_align
+    test r13, 15
+    jnz .stack_offset_fail_align
+
+    ; 4. Find VMAs to get actual ends
+    mov rdi, r12
+    call vma_find
+    test rax, rax
+    jz .stack_offset_fail_vma
+    mov r14, [rax + vma_t.end]      ; R14 = original stack top A
+
+    mov rdi, r13
+    call vma_find
+    test rax, rax
+    jz .stack_offset_fail_vma
+    mov r15, [rax + vma_t.end]      ; R15 = original stack top B
+
+    ; Calculate offsets: offset = original_top - top_offsetted
+    sub r14, r12                    ; R14 = offset A
+    sub r15, r13                    ; R15 = offset B
+
+    ; Verify offsets are in range 0..240 and multiples of 16
+    cmp r14, 0
+    jl .stack_offset_fail_bounds
+    cmp r14, 240
+    jg .stack_offset_fail_bounds
+    test r14, 15
+    jnz .stack_offset_fail_bounds
+
+    cmp r15, 0
+    jl .stack_offset_fail_bounds
+    cmp r15, 240
+    jg .stack_offset_fail_bounds
+    test r15, 15
+    jnz .stack_offset_fail_bounds
+
+    ; 5. Free both stacks
+    mov rdi, r12
+    mov rsi, 16384
+    call thread_stack_free
+
+    mov rdi, r13
+    mov rsi, 16384
+    call thread_stack_free
+
+    ; Test PASSED!
+    mov rsi, msg_stack_offset_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.stack_offset_fail_alloc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_stack_offset_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.stack_offset_fail_align:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_stack_offset_fail_align_str
+    call uart_print_str
+    jmp .panic
+
+.stack_offset_fail_vma:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_stack_offset_fail_vma_str
+    call uart_print_str
+    jmp .panic
+
+.stack_offset_fail_bounds:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_stack_offset_fail_bounds_str
+    call uart_print_str
+    jmp .panic
 
 .temporal_fail_init:
     pop r15
@@ -7252,6 +7368,13 @@ msg_temporal_fail_init_str:      db "Failure: Could not initialize temporal obfu
 msg_temporal_fail_not_moved_str: db "Failure: Code section virtual address was not relocated after tick threshold.", 0x0D, 0x0A, 0
 msg_temporal_fail_still_present_str: db "Failure: Old virtual mapping is still present in page table after migration.", 0x0D, 0x0A, 0
 msg_temporal_fail_walk_new_str:  db "Failure: Walk table returned 0 for newly migrated address.", 0x0D, 0x0A, 0
+
+msg_stack_offset_test_start:         db "Running Stack Frame Offset Randomization Security Tests...", 0x0D, 0x0A, 0
+msg_stack_offset_test_passed:        db "Stack Frame Offset Randomization Security Tests PASSED!", 0x0D, 0x0A, 0
+msg_stack_offset_fail_alloc_str:      db "Failure: thread_stack_alloc returned NULL.", 0x0D, 0x0A, 0
+msg_stack_offset_fail_align_str:      db "Failure: Allocated stack address is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_stack_offset_fail_vma_str:        db "Failure: Could not find VMA for stack address.", 0x0D, 0x0A, 0
+msg_stack_offset_fail_bounds_str:     db "Failure: Stack random offset is out of bounds or misaligned.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
