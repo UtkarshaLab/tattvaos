@@ -117,9 +117,13 @@ virt_map_space:
     ; -------------------------------------------------------------------------
     ; 2. Walk / Create PML4 Entry
     ; -------------------------------------------------------------------------
-    mov rcx, r12
+    mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF                  ; RCX = PML4 index
+    and rcx, 0x1FF                  ; RCX = logical index
+    push rdx
+    lea rdx, [pml4_shuffle_map]
+    movzx rcx, word [rdx + rcx * 2]  ; RCX = physical (shuffled) index
+    pop rdx
     mov rbx, [rax + rcx * 8]         ; RBX = PML4 entry
     test rbx, PAGE_PRESENT
     jnz .have_pdpt
