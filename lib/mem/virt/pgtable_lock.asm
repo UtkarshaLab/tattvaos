@@ -37,7 +37,9 @@ pgtable_lock_acquire:
     ; Derive PML4 index from virtual address: bits 39-47
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF                  ; RCX = PML4 index (0-511)
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rax, [pml4_shuffle_map]
+    movzx rcx, word [rax + rcx * 2]  ; RCX = physical (shuffled) index
 
     ; Check if there is an active thread
     extern sched_get_current_thread
@@ -88,7 +90,9 @@ pgtable_lock_acquire:
     ; Recalculate PML4 index in case registers were clobbered
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rax, [pml4_shuffle_map]
+    movzx rcx, word [rax + rcx * 2]  ; RCX = physical (shuffled) index
 
     ; Increment the abort count for this lock
     lea r9, [pgtable_lock_abort_counts]
@@ -98,7 +102,9 @@ pgtable_lock_acquire:
     ; Recalculate lock address: R8 = &pgtable_locks[PML4 index]
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rax, [pml4_shuffle_map]
+    movzx rcx, word [rax + rcx * 2]  ; RCX = physical (shuffled) index
     lea r8, [pgtable_locks]
     add r8, rcx
 
@@ -149,7 +155,9 @@ pgtable_lock_release:
     ; Reset abort count to 0 since transaction succeeded!
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rbx, [pml4_shuffle_map]
+    movzx rcx, word [rbx + rcx * 2]  ; RCX = physical (shuffled) index
     lea rbx, [pgtable_lock_abort_counts]
     mov byte [rbx + rcx], 0
 
@@ -161,7 +169,9 @@ pgtable_lock_release:
     ; Derive PML4 index from virtual address: bits 39-47
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF                  ; RCX = PML4 index (0-511)
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rax, [pml4_shuffle_map]
+    movzx rcx, word [rax + rcx * 2]  ; RCX = physical (shuffled) index
 
     ; Calculate lock byte address and clear it
     lea rax, [pgtable_locks]
