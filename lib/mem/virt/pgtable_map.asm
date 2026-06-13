@@ -41,7 +41,45 @@ virt_map:
     mov r13, rsi
     and r13, -4096                  ; R13 = physical address
     mov r14, rdx                    ; R14 = flags
-    or r14, PAGE_PRESENT            ; always present when mapped
+
+    ; Check if PAGE_XO flag is set
+    test r14, PAGE_XO
+    jz .not_xo_map_setup
+
+    ; It is XO mapping! Check CPUID for PKU support (CPUID.07H.0H:EBX.PKU [bit 3])
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    mov eax, 7
+    xor ecx, ecx
+    cpuid
+    test ebx, (1 << 3)              ; check bit 3 (PKU support)
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    jz .xo_software_fallback
+
+    ; Hardware PKU mode: map as present, clear NX, and set Protection Key 1
+    or r14, PAGE_PRESENT
+    mov rcx, PAGE_KEY_1             ; Key 1 in bits 62:59
+    or r14, rcx
+    mov rcx, PAGE_NX
+    not rcx
+    and r14, rcx                    ; clear NX to allow execution
+    jmp .xo_map_done
+
+.xo_software_fallback:
+    ; Software fallback mode: map as non-present in hardware (P=0)
+    ; But keep PAGE_XO flag (bit 9) set for software fault tracking
+    or r14, PAGE_XO
+    and r14, ~PAGE_PRESENT
+    jmp .xo_map_done
+
+.not_xo_map_setup:
+    or r14, PAGE_PRESENT            ; always present when mapped for normal pages
+.xo_map_done:
 
     ; Clear address from UAF quarantine list if it was previously freed
     mov rdi, r12
