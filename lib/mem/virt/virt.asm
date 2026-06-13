@@ -300,10 +300,106 @@ virt_create_user_pml4:
     pop rbx
     ret
 
+; -----------------------------------------------------------------------------
+; virt_decoy_init — allocates and populates the global decoy physical page
+; Input:  none
+; Output: RAX = physical address of decoy page, or 0 on failure
+; -----------------------------------------------------------------------------
+global virt_decoy_init
+virt_decoy_init:
+    push rbx
+    push rdi
+    push rsi
+    push rdx
+    
+    ; 1. Allocate a physical page frame
+    call phys_alloc_page
+    test rax, rax
+    jz .fail
+    mov rbx, rax                    ; RBX = decoy physical frame
+    
+    ; 2. Initialize the page frame with NOPs (0x90)
+    mov rdi, rbx                    ; destination
+    mov rsi, 0x90                   ; NOP instruction
+    mov rdx, 4096                   ; 4KB size
+    call memset
+    
+    ; 3. Place a RET instruction (0xC3) at the end of the page to safely return execution
+    mov byte [rbx + 4095], 0xC3     ; RET instruction
+    
+    ; 4. Store the physical address in the global variable
+    mov [decoy_page_phys], rbx
+    mov rax, rbx
+    jmp .done
+    
+.fail:
+    xor rax, rax
+.done:
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; virt_map_decoy — maps a virtual address to the shared decoy physical frame
+; Input:
+;   RDI = virtual address (should be 4KB page aligned)
+;   RDX = mapping flags (e.g. PAGE_USER)
+; Output:
+;   RAX = 1 on success, 0 on failure
+; Clobbers: RAX, RCX, RDX, RSI, RDI, R8-R11
+; -----------------------------------------------------------------------------
+global virt_map_decoy
+virt_map_decoy:
+    push rbx
+    push r12
+    push r13
+    
+    mov r12, rdi                    ; r12 = virtual address
+    mov r13, rdx                    ; r13 = mapping flags
+    
+    ; Check if the decoy page has been initialized
+    mov rbx, [decoy_page_phys]
+    test rbx, rbx
+    jnz .do_map
+    
+    ; Initialize the decoy page
+    call virt_decoy_init
+    test rax, rax
+    jz .fail
+    mov rbx, rax
+    
+.do_map:
+    ; Map the virtual address to the decoy page with given flags, ensuring executable (clear NX)
+    mov rdi, r12
+    mov rsi, rbx                    ; physical address of decoy page
+    
+    ; Clear PAGE_NX to allow execution on the decoy page
+    mov rcx, PAGE_NX
+    not rcx
+    and r13, rcx
+    
+    mov rdx, r13
+    call virt_map                   ; RAX = success status (1 or 0)
+    jmp .done
+    
+.fail:
+    xor rax, rax
+.done:
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
 section .data
 
 align 8
 global vma_list_head
 vma_list_head: dq 0
+
+align 8
+global decoy_page_phys
+decoy_page_phys: dq 0
 
 %endif ; LIB_MEM_VIRT_VIRT_ASM
