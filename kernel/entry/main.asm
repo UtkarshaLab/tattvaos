@@ -128,6 +128,9 @@ extern virt_map_decoy
 extern decoy_page_phys
 extern virt_logical_to_physical_vaddr
 extern pml4_shuffle_map
+extern virt_temporal_obfuscation_init
+extern virt_temporal_obfuscation_tick
+extern temporal_code_vaddr
 
 
 
@@ -4795,7 +4798,114 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .temporal_test_start
+
+.temporal_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_temporal_test_start
+    call uart_print_str
+
+    ; 1. Initialize temporal obfuscation (maps code page at 0x500000000)
+    call virt_temporal_obfuscation_init
+    test rax, rax
+    jz .temporal_fail_init
+
+    ; 2. Read initial address V_init
+    mov r12, [temporal_code_vaddr]  ; R12 = V_init
+
+    ; Verify V_init can be called successfully
+    call r12
+
+    ; 3. Run tick 5 times to trigger migration
+    mov rcx, 5
+.tick_loop:
+    push rcx
+    call virt_temporal_obfuscation_tick
+    pop rcx
+    dec rcx
+    jnz .tick_loop
+
+    ; 4. Read new address V_new
+    mov r13, [temporal_code_vaddr]  ; R13 = V_new
+
+    ; Verify that V_new is different from V_init
+    cmp r13, r12
+    je .temporal_fail_not_moved
+
+    ; 5. Verify V_new can be executed successfully
+    call r13
+
+    ; 6. Verify that V_init is no longer present in page table
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jnz .temporal_fail_still_present
+
+    ; 7. Clean up V_new mapping (unmap and free backing page)
+    mov rdi, r13
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .temporal_fail_walk_new
+    mov r14, [rax]
+    and r14, 0xFFFFFFFFFFFFF000     ; R14 = backing physical frame
+
+    mov rdi, r13
+    call virt_unmap
+
+    mov rdi, r14
+    call phys_free_page
+
+    ; Temporal Layout Obfuscation Test PASSED!
+    mov rsi, msg_temporal_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.temporal_fail_init:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_temporal_fail_init_str
+    call uart_print_str
+    jmp .panic
+
+.temporal_fail_not_moved:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_temporal_fail_not_moved_str
+    call uart_print_str
+    jmp .panic
+
+.temporal_fail_still_present:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_temporal_fail_still_present_str
+    call uart_print_str
+    jmp .panic
+
+.temporal_fail_walk_new:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_temporal_fail_walk_new_str
+    call uart_print_str
+    jmp .panic
 
 .decoy_fail_map:
     pop r14
@@ -7135,6 +7245,13 @@ msg_decoy_fail_walk_str:      db "Failure: Walk table returned 0 for mapped deco
 msg_decoy_fail_pte_present_str: db "Failure: Decoy page is not marked present in PTE.", 0x0D, 0x0A, 0
 msg_decoy_fail_pte_nx_str:      db "Failure: Decoy page has PAGE_NX set (must be executable).", 0x0D, 0x0A, 0
 msg_decoy_fail_pte_phys_str:    db "Failure: Decoy page does not point to decoy_page_phys.", 0x0D, 0x0A, 0
+
+msg_temporal_test_start:         db "Running Temporal Layout Obfuscation Security Tests...", 0x0D, 0x0A, 0
+msg_temporal_test_passed:        db "Temporal Layout Obfuscation Security Tests PASSED!", 0x0D, 0x0A, 0
+msg_temporal_fail_init_str:      db "Failure: Could not initialize temporal obfuscation.", 0x0D, 0x0A, 0
+msg_temporal_fail_not_moved_str: db "Failure: Code section virtual address was not relocated after tick threshold.", 0x0D, 0x0A, 0
+msg_temporal_fail_still_present_str: db "Failure: Old virtual mapping is still present in page table after migration.", 0x0D, 0x0A, 0
+msg_temporal_fail_walk_new_str:  db "Failure: Walk table returned 0 for newly migrated address.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
