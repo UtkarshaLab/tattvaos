@@ -124,6 +124,8 @@ extern pgtable_lock_release
 extern hle_protect_range
 extern hle_is_cache_aligned
 extern pgtable_lock_abort_counts
+extern virt_map_decoy
+extern decoy_page_phys
 
 
 
@@ -4572,7 +4574,112 @@ test_ctor:
     mov rsi, msg_aslr_test_passed
     call uart_print_str
 
+    jmp .decoy_test_start
+
+    ; =========================================================================
+    ; Decoy Memory Pages Test (Subfeature 26.3)
+    ; =========================================================================
+.decoy_test_start:
+    push r12
+    push r13
+    push r14
+
+    mov rsi, msg_decoy_test_start
+    call uart_print_str
+
+    ; 1. Map decoy page at 0x90000000 with PAGE_PRESENT | PAGE_USER
+    mov rdi, 0x90000000
+    mov rdx, PAGE_PRESENT | PAGE_USER
+    call virt_map_decoy
+    test rax, rax
+    jz .decoy_fail_map
+
+    ; 2. Walk the page table to verify the mapping
+    mov rdi, 0x90000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .decoy_fail_walk
+
+    mov rbx, [rax]                  ; rbx = PTE value
+    
+    ; Verify PAGE_PRESENT is 1
+    test rbx, PAGE_PRESENT
+    jz .decoy_fail_pte_present
+    
+    ; Verify PAGE_NX is 0 (executable)
+    mov rcx, PAGE_NX
+    test rbx, rcx
+    jnz .decoy_fail_pte_nx
+    
+    ; Verify it points to decoy_page_phys
+    mov rcx, [decoy_page_phys]
+    and rbx, 0xFFFFFFFFFFFFF000     ; mask off flags
+    cmp rbx, rcx
+    jne .decoy_fail_pte_phys
+
+    mov rsi, msg_decoy_pte_verify_ok
+    call uart_print_str
+
+    ; 3. Execute function call to decoy page (should slide and return RET 0xC3)
+    mov rax, 0x90000000
+    call rax                        ; executes the slide and returns safely!
+
+    mov rsi, msg_decoy_call_ok
+    call uart_print_str
+
+    ; 4. Clean up the mapping
+    mov rdi, 0x90000000
+    call virt_unmap
+
+    ; Decoy Memory Pages Test PASSED!
+    mov rsi, msg_decoy_test_passed
+    call uart_print_str
+
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.decoy_fail_map:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_decoy_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.decoy_fail_walk:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_decoy_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.decoy_fail_pte_present:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_decoy_fail_pte_present_str
+    call uart_print_str
+    jmp .panic
+
+.decoy_fail_pte_nx:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_decoy_fail_pte_nx_str
+    call uart_print_str
+    jmp .panic
+
+.decoy_fail_pte_phys:
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_decoy_fail_pte_phys_str
+    call uart_print_str
+    jmp .panic
 
     ; =========================================================================
     ; Execute-Only (XO) Pages Security Test (Subfeature 26.2)
@@ -6850,6 +6957,16 @@ msg_aslr_test_passed:         db "ASLR Symbol Offset Randomization Test PASSED!"
 msg_aslr_fail_alloc_str:      db "Failure: heap_alloc returned NULL for ASLR test.", 0x0D, 0x0A, 0
 msg_aslr_fail_align_str:      db "Failure: ASLR offsetted pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
 msg_aslr_fail_bounds_str:     db "Failure: ASLR random gap size is out of bounds or misaligned.", 0x0D, 0x0A, 0
+
+msg_decoy_test_start:         db "Running Decoy Memory Pages Security Tests...", 0x0D, 0x0A, 0
+msg_decoy_pte_verify_ok:      db "  [Decoy Test] PTE verification succeeded (mapped to decoy_page_phys and is executable).", 0x0D, 0x0A, 0
+msg_decoy_call_ok:            db "  [Decoy Test] Executing decoy call returned successfully.", 0x0D, 0x0A, 0
+msg_decoy_test_passed:        db "Decoy Memory Pages Security Tests PASSED!", 0x0D, 0x0A, 0
+msg_decoy_fail_map_str:       db "Failure: Could not map page with virt_map_decoy.", 0x0D, 0x0A, 0
+msg_decoy_fail_walk_str:      db "Failure: Walk table returned 0 for mapped decoy page.", 0x0D, 0x0A, 0
+msg_decoy_fail_pte_present_str: db "Failure: Decoy page is not marked present in PTE.", 0x0D, 0x0A, 0
+msg_decoy_fail_pte_nx_str:      db "Failure: Decoy page has PAGE_NX set (must be executable).", 0x0D, 0x0A, 0
+msg_decoy_fail_pte_phys_str:    db "Failure: Decoy page does not point to decoy_page_phys.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
