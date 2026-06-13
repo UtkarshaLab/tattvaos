@@ -126,6 +126,8 @@ extern hle_is_cache_aligned
 extern pgtable_lock_abort_counts
 extern virt_map_decoy
 extern decoy_page_phys
+extern virt_logical_to_physical_vaddr
+extern pml4_shuffle_map
 
 
 
@@ -4574,7 +4576,161 @@ test_ctor:
     mov rsi, msg_aslr_test_passed
     call uart_print_str
 
+    jmp .shuffling_test_start
+
+    ; =========================================================================
+    ; Virtual Page Table Shuffling Test (Subfeature 26.4)
+    ; =========================================================================
+.shuffling_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_shuffling_test_start
+    call uart_print_str
+
+    ; 1. Verify that logical index 1 is mapped to a different physical index
+    lea rbx, [pml4_shuffle_map]
+    movzx r12, word [rbx + 1 * 2]   ; R12 = physical PML4 index for logical index 1
+    
+    ; Verify that the mapping is randomized (R12 != 1)
+    cmp r12, 1
+    je .shuffling_fail_identity
+
+    mov rsi, msg_shuffling_index_ok
+    call uart_print_str
+
+    ; 2. Allocate a physical page for mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .shuffling_fail_alloc
+    mov r13, rax                    ; R13 = physical page
+
+    ; 3. Map page at logical virtual address 0x8000000000 (logical index 1)
+    mov rdi, 0x8000000000
+    mov rsi, r13
+    mov rdx, PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .shuffling_fail_map
+
+    ; 4. Get physical virtual address
+    mov rdi, 0x8000000000
+    call virt_logical_to_physical_vaddr
+    mov r14, rax                    ; R14 = physical virtual address
+
+    ; Verify that physical virtual address PML4 index matches R12
+    mov rax, r14
+    shr rax, 39
+    and rax, 0x1FF                  ; RAX = physical PML4 index
+    cmp rax, r12
+    jne .shuffling_fail_phys_vaddr
+
+    ; 5. Access (write) using physical virtual address
+    mov r15, 0x1122334455667788
+    mov [r14], r15
+
+    ; 6. Read back and verify the value
+    mov rax, [r14]
+    cmp rax, r15
+    jne .shuffling_fail_data
+
+    mov rsi, msg_shuffling_access_ok
+    call uart_print_str
+
+    ; 7. Walk table using logical address 0x8000000000 and verify it translates successfully
+    mov rdi, 0x8000000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .shuffling_fail_walk
+
+    ; Verify physical address matches R13
+    mov rax, [rax]
+    and rax, 0xFFFFFFFFFFFFF000     ; RAX = mapped physical frame
+    cmp rax, r13
+    jne .shuffling_fail_walk_phys
+
+    ; 8. Clean up
+    mov rdi, 0x8000000000
+    call virt_unmap
+    
+    mov rdi, r13
+    call phys_free_page
+
+    ; Virtual Page Table Shuffling Test PASSED!
+    mov rsi, msg_shuffling_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .decoy_test_start
+
+.shuffling_fail_identity:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_identity_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_alloc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_phys_vaddr:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_phys_vaddr_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_walk:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.shuffling_fail_walk_phys:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_shuffling_fail_walk_phys_str
+    call uart_print_str
+    jmp .panic
 
     ; =========================================================================
     ; Decoy Memory Pages Test (Subfeature 26.3)
@@ -6957,6 +7113,18 @@ msg_aslr_test_passed:         db "ASLR Symbol Offset Randomization Test PASSED!"
 msg_aslr_fail_alloc_str:      db "Failure: heap_alloc returned NULL for ASLR test.", 0x0D, 0x0A, 0
 msg_aslr_fail_align_str:      db "Failure: ASLR offsetted pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
 msg_aslr_fail_bounds_str:     db "Failure: ASLR random gap size is out of bounds or misaligned.", 0x0D, 0x0A, 0
+
+msg_shuffling_test_start:         db "Running Virtual Page Table Shuffling Tests...", 0x0D, 0x0A, 0
+msg_shuffling_index_ok:           db "  [Shuffling Test] Verification succeeded: logical index 1 randomized in pml4_shuffle_map.", 0x0D, 0x0A, 0
+msg_shuffling_access_ok:          db "  [Shuffling Test] Access (write/read) via physical virtual address succeeded.", 0x0D, 0x0A, 0
+msg_shuffling_test_passed:         db "Virtual Page Table Shuffling Tests PASSED!", 0x0D, 0x0A, 0
+msg_shuffling_fail_identity_str:  db "Failure: Logical index 1 mapped to identity slot in pml4_shuffle_map (not shuffled).", 0x0D, 0x0A, 0
+msg_shuffling_fail_alloc_str:     db "Failure: Could not allocate physical page for shuffling test.", 0x0D, 0x0A, 0
+msg_shuffling_fail_map_str:       db "Failure: Could not map page at logical index 1 for shuffling test.", 0x0D, 0x0A, 0
+msg_shuffling_fail_phys_vaddr_str: db "Failure: Physical virtual address PML4 index does not match pml4_shuffle_map.", 0x0D, 0x0A, 0
+msg_shuffling_fail_data_str:       db "Failure: Data read back from physical virtual address does not match signature.", 0x0D, 0x0A, 0
+msg_shuffling_fail_walk_str:       db "Failure: Walk table returned 0 for logical address 0x8000000000.", 0x0D, 0x0A, 0
+msg_shuffling_fail_walk_phys_str:  db "Failure: Mapped physical address does not match allocated page frame.", 0x0D, 0x0A, 0
 
 msg_decoy_test_start:         db "Running Decoy Memory Pages Security Tests...", 0x0D, 0x0A, 0
 msg_decoy_pte_verify_ok:      db "  [Decoy Test] PTE verification succeeded (mapped to decoy_page_phys and is executable).", 0x0D, 0x0A, 0
