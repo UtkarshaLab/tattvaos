@@ -62,7 +62,9 @@ virt_split_super_1gb:
     ; PML4 Walk
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov rax, [rbx + rcx * 8]
     test rax, PAGE_PRESENT
     jz .not_mapped
@@ -195,7 +197,9 @@ virt_split_huge_2mb:
     ; PML4 Walk
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov rax, [rbx + rcx * 8]
     test rax, PAGE_PRESENT
     jz .not_mapped
