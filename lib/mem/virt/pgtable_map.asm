@@ -134,7 +134,9 @@ virt_map:
     ; -------------------------------------------------------------------------
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF                  ; RCX = PML4 index
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov rbx, [rax + rcx * 8]         ; RBX = PML4 entry
     test rbx, PAGE_PRESENT
     jnz .have_pdpt
@@ -378,7 +380,9 @@ virt_map_huge_2mb:
     ; PML4
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov rbx, [rax + rcx * 8]
     test rbx, PAGE_PRESENT
     jnz .have_pdpt
@@ -566,7 +570,9 @@ virt_map_super_1gb:
     ; PML4
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov rbx, [rax + rcx * 8]
     test rbx, PAGE_PRESENT
     jnz .have_pdpt
