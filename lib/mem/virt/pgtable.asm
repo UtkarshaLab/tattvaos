@@ -24,6 +24,8 @@ PAGE_HUGE       equ (1 << 7)        ; Huge page (PS bit in PDPT/PD)
 PAGE_PAT        equ (1 << 7)        ; Page Attribute Table bit in leaf PTE
 
 PAGE_GLOBAL     equ (1 << 8)
+PAGE_XO         equ (1 << 9)        ; Execute-Only software tracking flag
+PAGE_KEY_1      equ (1 << 59)       ; Protection Key 1 (bits 62:59 = 0001)
 PAGE_SWAPPED    equ (1 << 10)       ; Page is swapped out to mock swap device
 PAGE_ZSWAPPED   equ (1 << 11)       ; Page is compressed in Zswap cache
 PAGE_NX         equ (1 << 63)       ; No-execute
