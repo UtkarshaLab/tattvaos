@@ -77,7 +77,9 @@ virt_walk_table:
     ; Walk PML4 (Level 4)
     mov rcx, rdi
     shr rcx, 39
-    and rcx, 0x1FF                  ; RCX = PML4 index
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea r8, [pml4_shuffle_map]
+    movzx rcx, word [r8 + rcx * 2]  ; RCX = physical (shuffled) index
     mov r8, [rax + rcx * 8]         ; R8 = PML4 entry
     test r8, PAGE_PRESENT
     jz .not_mapped
@@ -145,5 +147,93 @@ virt_walk_table:
     xor rax, rax                    ; return 0
     xor rdx, rdx
     ret
+
+; -----------------------------------------------------------------------------
+; virt_random_val — generates a random 64-bit value
+; Output: RAX = random 64-bit value
+; Clobbers: RAX, RCX, RDX
+; -----------------------------------------------------------------------------
+global virt_random_val
+virt_random_val:
+    push rbx
+    ; Check CPUID.01H:ECX.30 for RDRAND support
+    mov eax, 1
+    cpuid
+    bt ecx, 30
+    jnc .use_rdtsc
+    
+    rdrand rax
+    jc .done
+    
+.use_rdtsc:
+    rdtsc                           ; EDX:EAX = TSC
+    shl rdx, 32
+    or rax, rdx
+    
+.done:
+    pop rbx
+    ret
+
+; -----------------------------------------------------------------------------
+; virt_shuffle_pml4_init — randomizes the PML4 entry indices mapping (1..511)
+; -----------------------------------------------------------------------------
+global virt_shuffle_pml4_init
+virt_shuffle_pml4_init:
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r12
+    push r13
+    
+    ; We shuffle indices 1 to 511.
+    ; Loop from i = 511 down to 2:
+    mov r12, 511                    ; r12 = i
+.shuffle_loop:
+    cmp r12, 2
+    jl .done
+    
+    ; Get a random number r in range [1, i]
+    push r12
+    call virt_random_val            ; RAX = random 64-bit value
+    pop r12
+    
+    ; Restrict to range [1, i]
+    ; r = 1 + (random % i)
+    xor rdx, rdx
+    div r12                         ; RDX = random % i
+    inc rdx                         ; RDX = 1 + (random % i)
+    mov r13, rdx                    ; r13 = j
+    
+    ; Swap pml4_shuffle_map[i] and pml4_shuffle_map[j]
+    lea rbx, [pml4_shuffle_map]
+    mov ax, [rbx + r12 * 2]         ; AX = map[i]
+    mov cx, [rbx + r13 * 2]         ; CX = map[j]
+    mov [rbx + r12 * 2], cx
+    mov [rbx + r13 * 2], ax
+    
+    dec r12
+    jmp .shuffle_loop
+    
+.done:
+    pop r13
+    pop r12
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+section .data
+align 8
+global pml4_shuffle_map
+pml4_shuffle_map:
+    %assign i 0
+    %rep 512
+        dw i
+        %assign i i+1
+    %endrep
 
 %endif ; LIB_MEM_VIRT_PGTABLE_ASM
