@@ -151,7 +151,11 @@ virt_thp_sweep:
     ; PML4
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    push rdx
+    lea rdx, [pml4_shuffle_map]
+    movzx rcx, word [rdx + rcx * 2]  ; RCX = physical (shuffled) index
+    pop rdx
     mov rax, [rax + rcx * 8]
     and rax, 0xFFFFFFFFFFFFF000
 
