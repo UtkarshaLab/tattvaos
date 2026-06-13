@@ -10,6 +10,11 @@
 
 [BITS 64]
 
+PAGE_PRESENT    equ (1 << 0)
+PAGE_XO         equ (1 << 9)
+PAGE_KEY_1      equ (1 << 59)
+PAGE_NX         equ (1 << 63)
+
 section .text
 
 ; External VMM functions
@@ -4567,7 +4572,186 @@ test_ctor:
     mov rsi, msg_aslr_test_passed
     call uart_print_str
 
-    jmp .uaf_test_start
+    jmp .xo_test_start
+
+    ; =========================================================================
+    ; Execute-Only (XO) Pages Security Test (Subfeature 26.2)
+    ; =========================================================================
+.xo_test_start:
+    push r12
+    mov rsi, msg_xo_test_start
+    call uart_print_str
+
+    ; Check CPUID for PKU support (CPUID.07H.0H:EBX.PKU [bit 3])
+    push rbx
+    push rcx
+    push rdx
+    mov eax, 7
+    xor ecx, ecx
+    cpuid
+    test ebx, (1 << 3)
+    pop rdx
+    pop rcx
+    pop rbx
+    jz .xo_test_fallback_path
+
+    ; --- Hardware PKU Path ---
+    mov rsi, msg_xo_pku_supported
+    call uart_print_str
+
+    ; Enable CR4.PKE and program PKRU
+    mov rax, cr4
+    or rax, (1 << 22)
+    mov cr4, rax
+
+    xor ecx, ecx
+    rdpkru
+    or eax, 0x0C                    ; AD1=1, WD1=1
+    and eax, ~0x03                  ; Key 0 fully accessible
+    xor edx, edx
+    wrpkru
+
+    ; Allocate a physical page for mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .xo_fail_alloc
+    mov r12, rax                    ; R12 = physical page
+
+    ; Map page at 0xA0000000 with PAGE_XO
+    mov rdi, 0xA0000000
+    mov rsi, r12
+    mov rdx, PAGE_XO
+    call virt_map
+    test rax, rax
+    jz .xo_fail_map
+
+    ; Walk page table to verify PTE
+    mov rdi, 0xA0000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .xo_fail_walk
+
+    mov rbx, [rax]
+    ; Verify PAGE_PRESENT = 1
+    test rbx, PAGE_PRESENT
+    jz .xo_fail_pte_present
+    ; Verify PAGE_KEY_1 is set
+    mov rcx, PAGE_KEY_1
+    test rbx, rcx
+    jz .xo_fail_pte_key
+    ; Verify PAGE_NX is 0
+    mov rcx, PAGE_NX
+    test rbx, rcx
+    jnz .xo_fail_pte_nx
+
+    mov rsi, msg_xo_pte_verify_ok
+    call uart_print_str
+
+    ; Attempt read from 0xA0000000 -> should panic and halt
+    mov rdi, 0xA0000000
+    mov rax, [rdi]
+
+    ; If we reach here, the protection check failed!
+    jmp .xo_fail_trap
+
+.xo_test_fallback_path:
+    ; --- Software Fallback Path ---
+    mov rsi, msg_xo_pku_unsupported
+    call uart_print_str
+
+    ; Allocate a physical page for mapping
+    call phys_alloc_page
+    test rax, rax
+    jz .xo_fail_alloc
+    mov r12, rax
+
+    ; Map page at 0xA0000000 with PAGE_XO
+    mov rdi, 0xA0000000
+    mov rsi, r12
+    mov rdx, PAGE_XO
+    call virt_map
+    test rax, rax
+    jz .xo_fail_map
+
+    ; Walk page table to verify PTE
+    mov rdi, 0xA0000000
+    xor rsi, rsi
+    call virt_walk_table
+    test rax, rax
+    jz .xo_fail_walk
+
+    mov rbx, [rax]
+    ; Verify PAGE_PRESENT = 0
+    test rbx, PAGE_PRESENT
+    jnz .xo_fail_pte_absent
+    ; Verify PAGE_XO is set
+    test rbx, PAGE_XO
+    jz .xo_fail_pte_xo
+
+    mov rsi, msg_xo_pte_verify_ok
+    call uart_print_str
+
+    ; Attempt read from 0xA0000000 -> should panic and halt
+    mov rdi, 0xA0000000
+    mov rax, [rdi]
+
+    ; If we reach here, the protection check failed!
+    jmp .xo_fail_trap
+
+.xo_fail_alloc:
+    pop r12
+    mov rsi, msg_xo_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_map:
+    pop r12
+    mov rsi, msg_xo_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_walk:
+    pop r12
+    mov rsi, msg_xo_fail_walk_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_pte_present:
+    pop r12
+    mov rsi, msg_xo_fail_pte_present_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_pte_key:
+    pop r12
+    mov rsi, msg_xo_fail_pte_key_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_pte_nx:
+    pop r12
+    mov rsi, msg_xo_fail_pte_nx_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_pte_absent:
+    pop r12
+    mov rsi, msg_xo_fail_pte_absent_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_pte_xo:
+    pop r12
+    mov rsi, msg_xo_fail_pte_xo_str
+    call uart_print_str
+    jmp .panic
+
+.xo_fail_trap:
+    pop r12
+    mov rsi, msg_xo_fail_trap_str
+    call uart_print_str
+    jmp .panic
 
 .aslr_fail_alloc:
     mov rsi, msg_aslr_fail_alloc_str
@@ -6666,6 +6850,20 @@ msg_aslr_test_passed:         db "ASLR Symbol Offset Randomization Test PASSED!"
 msg_aslr_fail_alloc_str:      db "Failure: heap_alloc returned NULL for ASLR test.", 0x0D, 0x0A, 0
 msg_aslr_fail_align_str:      db "Failure: ASLR offsetted pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
 msg_aslr_fail_bounds_str:     db "Failure: ASLR random gap size is out of bounds or misaligned.", 0x0D, 0x0A, 0
+
+msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
+msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
+msg_xo_pku_unsupported:       db "  [XO Test] Hardware PKU not supported. Using software-fallback (P=0)...", 0x0D, 0x0A, 0
+msg_xo_pte_verify_ok:         db "  [XO Test] PTE verification succeeded. Attempting read access...", 0x0D, 0x0A, 0
+msg_xo_fail_alloc_str:        db "Failure: Could not allocate physical page for XO test.", 0x0D, 0x0A, 0
+msg_xo_fail_map_str:          db "Failure: Could not map page with PAGE_XO for XO test.", 0x0D, 0x0A, 0
+msg_xo_fail_walk_str:         db "Failure: virt_walk_table returned 0 for mapped XO page.", 0x0D, 0x0A, 0
+msg_xo_fail_pte_present_str:  db "Failure: Hardware PKU mapped page is not present in PTE.", 0x0D, 0x0A, 0
+msg_xo_fail_pte_key_str:      db "Failure: Hardware PKU mapped page does not have Key 1 in PTE.", 0x0D, 0x0A, 0
+msg_xo_fail_pte_nx_str:       db "Failure: Hardware PKU mapped page has NX set (must be 0 for execution).", 0x0D, 0x0A, 0
+msg_xo_fail_pte_absent_str:   db "Failure: Software fallback mapped page is present in PTE (must be 0).", 0x0D, 0x0A, 0
+msg_xo_fail_pte_xo_str:       db "Failure: Software fallback mapped page does not have PAGE_XO bit set.", 0x0D, 0x0A, 0
+msg_xo_fail_trap:             db "Failure: Read access to Execute-Only page did not trigger page fault violation.", 0x0D, 0x0A, 0
 
 
 
