@@ -84,7 +84,9 @@ virt_unmap:
     ; -------------------------------------------------------------------------
     mov rcx, r12
     shr rcx, 39
-    and rcx, 0x1FF
+    and rcx, 0x1FF                  ; RCX = logical index
+    lea rbx, [pml4_shuffle_map]
+    movzx rcx, word [rbx + rcx * 2]  ; RCX = physical (shuffled) index
     lea r13, [rax + rcx * 8]       ; R13 = &PML4[index] (parent of PDPT)
     mov rax, [r13]
     test rax, PAGE_PRESENT
