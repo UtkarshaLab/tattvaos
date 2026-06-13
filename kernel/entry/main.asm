@@ -4508,7 +4508,81 @@ test_ctor:
     mov rsi, msg_tsx_fallback_lock_test_passed
     call uart_print_str
 
+    jmp .aslr_test_start
+
+    ; =========================================================================
+    ; ASLR Symbol Offset Randomization Test (Subfeature 26.1)
+    ; =========================================================================
+.aslr_test_start:
+    mov rsi, msg_aslr_test_start
+    call uart_print_str
+
+    ; 1. Allocate block A (64 bytes)
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .aslr_fail_alloc
+    mov r12, rax                    ; R12 = pointer A (offsetted)
+
+    ; 2. Allocate block B (64 bytes)
+    mov rdi, 64
+    call heap_alloc
+    test rax, rax
+    jz .aslr_fail_alloc
+    mov r13, rax                    ; R13 = pointer B (offsetted)
+
+    ; 3. Verify alignment of pointers
+    test r12, 15
+    jnz .aslr_fail_align
+    test r13, 15
+    jnz .aslr_fail_align
+
+    ; 4. Retrieve gap sizes
+    mov r14, [r12 - 8]              ; R14 = gap size A
+    mov r15, [r13 - 8]              ; R15 = gap size B
+
+    ; 5. Verify gap A is in range [16, 256] and is a multiple of 16
+    cmp r14, 16
+    jl .aslr_fail_bounds
+    cmp r14, 256
+    jg .aslr_fail_bounds
+    test r14, 15
+    jnz .aslr_fail_bounds
+
+    ; 6. Verify gap B is in range [16, 256] and is a multiple of 16
+    cmp r15, 16
+    jl .aslr_fail_bounds
+    cmp r15, 256
+    jg .aslr_fail_bounds
+    test r15, 15
+    jnz .aslr_fail_bounds
+
+    ; 7. Free allocations
+    mov rdi, r12
+    call heap_free
+    mov rdi, r13
+    call heap_free
+
+    ; ASLR Symbol Offset Randomization Test PASSED!
+    mov rsi, msg_aslr_test_passed
+    call uart_print_str
+
     jmp .uaf_test_start
+
+.aslr_fail_alloc:
+    mov rsi, msg_aslr_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.aslr_fail_align:
+    mov rsi, msg_aslr_fail_align_str
+    call uart_print_str
+    jmp .panic
+
+.aslr_fail_bounds:
+    mov rsi, msg_aslr_fail_bounds_str
+    call uart_print_str
+    jmp .panic
 
 .tsx_fallback_lock_fail_init_active:
     mov rsi, msg_tsx_fallback_lock_fail_init_active_str
@@ -6586,6 +6660,12 @@ msg_tsx_fallback_lock_fail_decay_count_str:    db "Failure: Traditional release 
 msg_tsx_fallback_lock_fail_retry_active_str:   db "Failure: Acquire did not attempt TSX after abort count decayed.", 0x0D, 0x0A, 0
 msg_tsx_fallback_lock_fail_retry_lock_str:     db "Failure: Acquire modified lock byte after abort count decayed.", 0x0D, 0x0A, 0
 msg_tsx_fallback_lock_fail_final_count_str:    db "Failure: Speculative release did not reset abort count to 0.", 0x0D, 0x0A, 0
+
+msg_aslr_test_start:          db "Running ASLR Symbol Offset Randomization Tests...", 0x0D, 0x0A, 0
+msg_aslr_test_passed:         db "ASLR Symbol Offset Randomization Test PASSED!", 0x0D, 0x0A, 0
+msg_aslr_fail_alloc_str:      db "Failure: heap_alloc returned NULL for ASLR test.", 0x0D, 0x0A, 0
+msg_aslr_fail_align_str:      db "Failure: ASLR offsetted pointer is not 16-byte aligned.", 0x0D, 0x0A, 0
+msg_aslr_fail_bounds_str:     db "Failure: ASLR random gap size is out of bounds or misaligned.", 0x0D, 0x0A, 0
 
 
 
