@@ -392,6 +392,37 @@ virt_map_decoy:
     pop rbx
     ret
 
+; -----------------------------------------------------------------------------
+; virt_logical_to_physical_vaddr — translates a logical virtual address to its physical shuffled virtual address
+; Input:
+;   RDI = logical virtual address
+; Output:
+;   RAX = physical shuffled virtual address
+; Clobbers: RAX, RCX, RDX
+; -----------------------------------------------------------------------------
+global virt_logical_to_physical_vaddr
+virt_logical_to_physical_vaddr:
+    mov rax, rdi
+    shr rax, 39
+    and rax, 0x1FF                  ; RAX = logical PML4 index
+    lea rcx, [pml4_shuffle_map]
+    movzx rax, word [rcx + rax * 2]  ; RAX = physical PML4 index
+    
+    ; Reconstruct physical virtual address
+    mov rcx, rdi
+    mov rdx, 0xFFFFFF8000000000
+    and rcx, ~rdx                   ; clear logical PML4 index and sign bits
+    
+    shl rax, 39                     ; shift physical index to bits 39-47
+    
+    ; Apply sign extension if physical index >= 256
+    cmp rax, 0x8000000000           ; index 256
+    jb .no_sign_ext
+    or rax, rdx                     ; set sign bits
+.no_sign_ext:
+    or rax, rcx                     ; merge back offset
+    ret
+
 section .data
 
 align 8
