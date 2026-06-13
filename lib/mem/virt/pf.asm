@@ -34,6 +34,8 @@ PAGE_PRESENT    equ (1 << 0)
 PAGE_WRITABLE   equ (1 << 1)
 PAGE_USER       equ (1 << 2)
 PAGE_COW        equ (1 << 9)
+PAGE_XO         equ (1 << 9)        ; Execute-Only software tracking flag
+PAGE_KEY_1      equ (1 << 59)       ; Protection Key 1 (bits 62:59 = 0001)
 PAGE_SWAPPED    equ (1 << 10)
 PAGE_ZSWAPPED   equ (1 << 11)
 PAGE_NX         equ (1 << 63)
@@ -176,6 +178,69 @@ virt_page_fault_handler:
     cmp rax, rcx
     je .kernel_stack_overflow
 
+    ; Check if this is an XO page violation
+    mov rdi, r12
+    xor rsi, rsi
+    call virt_walk_table            ; RAX = physical address of PTE, RDX = level
+    test rax, rax
+    jz .not_xo_fault
+    
+    mov rbx, [rax]                  ; RBX = PTE value
+    test rbx, PAGE_XO
+    jz .not_xo_fault
+    
+    test rbx, PAGE_PRESENT          ; software fallback has P=0
+    jz .is_xo_check
+    
+    test r13, 32                    ; hardware PKU violation (bit 5 of error code)?
+    jnz .is_xo_check
+    
+    mov rcx, PAGE_KEY_1
+    test rbx, rcx
+    jnz .is_xo_check
+    
+    jmp .not_xo_fault
+    
+.is_xo_check:
+    test r13, 16                    ; Instruction fetch? (bit 4 of error code)
+    jnz .xo_exec_allow
+    
+    ; Data read/write violation! Trigger security panic
+    mov rsi, msg_xo_panic_prefix
+    call uart_print_str
+    
+    mov rax, r12
+    call uart_print_hex64
+    
+    mov rsi, msg_xo_panic_suffix
+    call uart_print_str
+    
+    mov rdi, msg_xo_reason
+    mov rsi, [r15]                  ; RIP of crash
+    call kernel_panic
+    cli
+.xo_halt:
+    hlt
+    jmp .xo_halt
+
+.xo_exec_allow:
+    ; Instruction execution on software fallback: print warning and panic
+    mov rsi, msg_xo_exec_fallback_prefix
+    call uart_print_str
+    mov rax, r12
+    call uart_print_hex64
+    mov rsi, msg_xo_exec_fallback_suffix
+    call uart_print_str
+    
+    mov rdi, msg_xo_exec_reason
+    mov rsi, [r15]                  ; RIP of crash
+    call kernel_panic
+    cli
+.xo_exec_halt:
+    hlt
+    jmp .xo_exec_halt
+
+.not_xo_fault:
     ; Check if it is a swap fault (Non-Present fault with PAGE_SWAPPED set in PTE)
     test r13, 1                     ; present fault (bit 0 set)?
     jnz .not_swap_fault             ; yes, cannot be swap fault
@@ -991,6 +1056,13 @@ msg_pf_mock_data:       db "TATTVA_OS_ONDEMAND_PAGE_LOADED", 0
 msg_uaf_panic_prefix:  db "KERNEL PANIC: Use-After-Free detected at address 0x", 0
 msg_uaf_panic_suffix:  db "! (UAF_TEST_SUCCESS)", 0x0D, 0x0A, 0
 msg_uaf_reason:        db "Use-After-Free Memory Access Violation", 0
+
+msg_xo_panic_prefix:  db "KERNEL PANIC: Execute-Only (XO) Page Violation: Read/Write access denied at address 0x", 0
+msg_xo_panic_suffix:  db "! (XO_TEST_SUCCESS)", 0x0D, 0x0A, 0
+msg_xo_reason:        db "Execute-Only Page Security Access Violation", 0
+msg_xo_exec_fallback_prefix: db "KERNEL PANIC: Instruction execution on software fallback XO page is not supported: address 0x", 0
+msg_xo_exec_fallback_suffix: db "!", 0x0D, 0x0A, 0
+msg_xo_exec_reason:   db "Execute-Only Page Instruction Execution Not Supported in Software Fallback", 0
 
 msg_tsx_retry_prefix:  db "[TSX] Page Fault resolved, retrying transaction (attempt ", 0
 msg_tsx_retry_suffix:  db ")", 0x0D, 0x0A, 0
