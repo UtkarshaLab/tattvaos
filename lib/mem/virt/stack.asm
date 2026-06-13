@@ -38,6 +38,7 @@ extern phys_free_page
 extern virt_map
 extern virt_unmap
 extern virt_translate
+extern virt_random_val
 
 ; -----------------------------------------------------------------------------
 ; virt_find_free_range — finds a free virtual address range of a given size
@@ -180,8 +181,16 @@ thread_stack_alloc:
     ; Store expected canary in VMA metadata (file_size field)
     mov [r15 + vma_t.file_size], rax
 
-    ; Return the TOP of the stack (RBX)
+    ; Generate 16-byte aligned random offset (0 to 240 bytes)
+    call virt_random_val            ; RAX = random 64-bit value
+    xor rdx, rdx
+    mov rcx, 16
+    div rcx                         ; RDX = random % 16
+    shl rdx, 4                      ; RDX = (random % 16) * 16
+
+    ; Return the TOP of the stack (RBX) offsetted by the random padding
     mov rax, rbx
+    sub rax, rdx                    ; RAX = rbx - offset
     
 .exit:
     pop r15
@@ -238,37 +247,30 @@ thread_stack_free:
     push r13
     push r14
 
-    mov rbx, rdi                    ; RBX = top of stack (exclusive)
-    mov r12, rsi                    ; R12 = stack size
-    
-    ; Calculate total size including 4KB guard page
-    mov rdx, r12
-    add rdx, 4096                   ; RDX = total size
-    
-    ; Calculate start address (start = top - total_size)
-    mov r13, rbx
-    sub r13, rdx                    ; R13 = start address of guard page (page-aligned)
-    
-    ; Find the VMA corresponding to the start address (guard page base) to destroy it later
-    mov rdi, r13
+    mov rbx, rdi                    ; RBX = input stack address (returned by alloc, might be offsetted)
+
+    ; Find VMA corresponding to the stack address
+    mov rdi, rbx
     call vma_find
-    mov r14, rax                    ; R14 = VMA pointer (or 0)
-    
-    ; Verify stack canary before reclaiming stack pages
-    test r14, r14
-    jz .free_pages                  ; if no VMA, skip check (should not happen)
-    
-    ; Check if this is a stack VMA
+    test rax, rax
+    jz .exit                        ; if no VMA found, exit (invalid stack pointer)
+    mov r14, rax                    ; R14 = VMA pointer
+
+    ; Verify stack VMA
     mov rax, [r14 + vma_t.flags]
     test rax, VMA_STACK
-    jz .free_pages                  ; if not a stack VMA, skip check
-    
-    ; Read expected and actual canaries
+    jz .exit                        ; not a stack VMA
+
+    ; Retrieve original limits from VMA
+    mov r13, [r14 + vma_t.start]    ; R13 = original start virtual address of guard page
+    mov rbx, [r14 + vma_t.end]      ; RBX = original stack top virtual address (exclusive)
+
+    ; Verify stack canary
     mov rcx, [r14 + vma_t.file_size] ; RCX = expected canary
     mov rdx, [rbx - 16]             ; RDX = actual canary
     cmp rcx, rdx
     jne .canary_corrupted
-    
+
 .free_pages:
     ; Free all physical pages and unmap virtual space for the actual stack pages
     mov rcx, r13
@@ -306,10 +308,7 @@ thread_stack_free:
     call virt_unmap
 
 .free_vma:
-    ; Destroy the VMA if found
-    test r14, r14
-    jz .exit
-    
+    ; Destroy the VMA
     mov rdi, r14
     call vma_destroy
 
