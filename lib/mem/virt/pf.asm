@@ -29,6 +29,7 @@ VMA_FILE        equ (1 << 8)
 VMA_HMM         equ (1 << 9)
 VMA_DAX         equ (1 << 10)
 VMA_PMEM        equ (1 << 11)
+VMA_PMEM_WINDOW equ (1 << 12)
 
 
 ; Page Table Flags (from pgtable.asm)
@@ -67,6 +68,7 @@ extern kernel_panic
 extern virt_handle_file_map
 extern virt_handle_dax_map
 extern virt_handle_pmem_map
+extern virt_handle_pmem_window_map
 
 
 ; -----------------------------------------------------------------------------
@@ -333,6 +335,10 @@ virt_page_fault_handler:
     test rbx, VMA_PMEM
     jnz .pmem_map_path
 
+    ; Check if PMEM WINDOW VMA
+    test rbx, VMA_PMEM_WINDOW
+    jnz .pmem_window_map_path
+
     ; Check if on-demand paging VMA
     test rbx, VMA_ONDEMAND
     jnz .on_demand_path
@@ -387,6 +393,17 @@ virt_page_fault_handler:
     mov rdi, r12                    ; virtual address
     mov rsi, rax                    ; VMA pointer
     call virt_handle_pmem_map
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
+
+.pmem_window_map_path:
+    ; Call handler for PMEM Hardware Window mapping
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    call virt_handle_pmem_window_map
     test rax, rax
     jz .do_diagnostics              ; failed -> panic
 
