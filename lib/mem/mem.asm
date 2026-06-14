@@ -80,6 +80,7 @@
 
 %include "lib/mem/virt/replacement.asm"
 %include "storage/ummapf/mmap.asm"
+%include "storage/ummapf/dax.asm"
 %include "lib/mem/virt/ipc.asm"
 
 %endif ; LIB_MEM_MEM_ASM
