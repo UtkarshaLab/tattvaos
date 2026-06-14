@@ -26,6 +26,7 @@ VMA_FILE        equ (1 << 8)    ; Bind storage file directly to VMA
 VMA_HMM         equ (1 << 9)    ; VMA flag for HMM Unified Memory
 VMA_DAX         equ (1 << 10)   ; DAX Zero-Cache mapping flag
 VMA_PMEM        equ (1 << 11)   ; PMEM Byte-Addressability mapping flag
+VMA_PMEM_WINDOW equ (1 << 12)   ; PMEM static hardware window mapping flag
 
 
 section .text
