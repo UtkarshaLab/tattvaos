@@ -20,6 +20,8 @@ VMA_USER        equ (1 << 3)
 VMA_FILE        equ (1 << 8)
 %endif
 
+VMA_DAX         equ (1 << 10)
+
 
 ; Page Table Flags (matching pgtable.asm)
 PAGE_PRESENT    equ (1 << 0)
@@ -531,9 +533,9 @@ mmap_munmap:
     jz .next_unmap
     mov r14, rax                    ; R14 = VMA pointer
 
-    ; Check if VMA is file-mapped
+    ; Check if VMA is file-mapped or DAX
     mov rax, [r14 + vma_t.flags]
-    test rax, VMA_FILE
+    test rax, VMA_FILE | VMA_DAX
     jz .next_unmap
 
     ; Walk page table to extract physical page address
@@ -555,7 +557,11 @@ mmap_munmap:
     mov rdi, r12
     call virt_unmap
 
-    ; Free the physical RAM page frame
+    ; Free the physical RAM page frame ONLY if not VMA_DAX
+    mov rax, [r14 + vma_t.flags]
+    test rax, VMA_DAX
+    jnz .next_unmap
+
     mov rdi, r15
     call phys_free_page
     jmp .next_unmap
