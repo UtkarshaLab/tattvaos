@@ -84,6 +84,7 @@
 %include "storage/ummapf/pmem.asm"
 %include "storage/ummapf/window.asm"
 %include "storage/ummapf/bypass.asm"
+%include "storage/ummapf/barrier.asm"
 %include "lib/mem/virt/ipc.asm"
 
 %endif ; LIB_MEM_MEM_ASM
