@@ -109,6 +109,7 @@ extern virt_handle_pmem_window_map
 extern pmem_window_init
 extern pmem_window_select_block
 extern pmem_memcpy_nt
+extern pmem_flush_range
 extern mmap_msync
 extern mmap_munmap
 extern virt_create_user_pml4
@@ -5386,7 +5387,120 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .barrier_test_start
+
+.barrier_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_barrier_test_start
+    call uart_print_str
+
+    ; 1. Allocate a physical page for testing
+    call phys_alloc_page
+    test rax, rax
+    jz .barrier_fail_alloc
+    mov r12, rax                    ; R12 = physical page address
+
+    ; 2. Map page to 0x80002000
+    mov rdi, 0x80002000
+    mov rsi, r12
+    mov rdx, 3                      ; PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .barrier_fail_map
+
+    ; 3. Fill page with signature data
+    mov rdi, 0x80002000
+    mov rcx, 512
+    mov rax, 0x1122334455667788
+.fill_loop_barrier:
+    mov [rdi], rax
+    add rdi, 8
+    dec rcx
+    jnz .fill_loop_barrier
+
+    ; 4. Flush cache lines using pmem_flush_range
+    mov rdi, 0x80002000             ; RDI = start address
+    mov rsi, 4096                   ; RSI = size (1 page)
+    call pmem_flush_range
+
+    ; 5. Verify that data remains intact immediately
+    mov rdi, 0x80002000
+    mov rcx, 512
+.verify_loop_barrier:
+    mov rax, [rdi]
+    mov rbx, 0x1122334455667788
+    cmp rax, rbx
+    jne .barrier_fail_data
+    add rdi, 8
+    dec rcx
+    jnz .verify_loop_barrier
+
+    ; --- Part 2: Unaligned offset flush test ---
+    ; Set a single cache line to a different value and flush it with unaligned offset
+    mov rdi, 0x80002000 + 100
+    mov rax, 0x9988776655443322
+    mov [rdi], rax
+
+    mov rdi, 0x80002000 + 100
+    mov rsi, 8                      ; 8 bytes flush
+    call pmem_flush_range
+
+    ; Verify data remains intact
+    mov rax, [rdi]
+    mov rbx, 0x9988776655443322
+    cmp rax, rbx
+    jne .barrier_fail_data
+
+    ; 6. Unmap virtual address space
+    mov rdi, 0x80002000
+    mov rsi, 4096
+    call virt_unmap
+
+    ; 7. Free physical page
+    mov rdi, r12
+    call phys_free_page
+
+    ; VMM PMEM Hardware Metadata Barrier Flushing Tests PASSED!
+    mov rsi, msg_barrier_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.barrier_fail_alloc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_barrier_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.barrier_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_barrier_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.barrier_fail_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_barrier_fail_data_str
+    call uart_print_str
+    jmp .panic
+
 
 .window_fail_alloc_desc:
     pop r15
@@ -8054,6 +8168,12 @@ msg_bypass_fail_alloc_str:         db "Failure: Could not allocate source physic
 msg_bypass_fail_alloc_dest_str:    db "Failure: Could not allocate destination physical page for bypass test.", 0x0D, 0x0A, 0
 msg_bypass_fail_map_str:           db "Failure: Could not map pages for bypass test.", 0x0D, 0x0A, 0
 msg_bypass_fail_data_str:          db "Failure: Direct write bypass data verification mismatch.", 0x0D, 0x0A, 0
+
+msg_barrier_test_start:            db "Running VMM PMEM Hardware Metadata Barrier Flushing Tests...", 0x0D, 0x0A, 0
+msg_barrier_test_passed:           db "VMM PMEM Hardware Metadata Barrier Flushing Tests PASSED!", 0x0D, 0x0A, 0
+msg_barrier_fail_alloc_str:        db "Failure: Could not allocate physical page for barrier test.", 0x0D, 0x0A, 0
+msg_barrier_fail_map_str:          db "Failure: Could not map page for barrier test.", 0x0D, 0x0A, 0
+msg_barrier_fail_data_str:         db "Failure: PMEM barrier data integrity verification failed.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
