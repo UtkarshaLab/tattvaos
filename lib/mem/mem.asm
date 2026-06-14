@@ -82,6 +82,7 @@
 %include "storage/ummapf/mmap.asm"
 %include "storage/ummapf/dax.asm"
 %include "storage/ummapf/pmem.asm"
+%include "storage/ummapf/window.asm"
 %include "lib/mem/virt/ipc.asm"
 
 %endif ; LIB_MEM_MEM_ASM
