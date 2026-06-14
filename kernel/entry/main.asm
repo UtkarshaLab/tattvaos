@@ -99,6 +99,8 @@ extern pool_destroy
 extern mock_file_create
 extern mock_file_destroy
 extern vma_map_file
+extern vma_map_dax
+extern virt_handle_dax_map
 extern mmap_msync
 extern mmap_munmap
 extern virt_create_user_pml4
@@ -4949,7 +4951,164 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .dax_test_start
+
+.dax_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_dax_test_start
+    call uart_print_str
+
+    ; 1. Create an 8KB mock file
+    mov rdi, 8192
+    call mock_file_create
+    test rax, rax
+    jz .dax_fail_create
+    mov r12, rax                    ; R12 = mock_file pointer
+
+    ; 2. Map the file range using vma_map_dax at virtual address 0xE0000000 (size 8192, flags VMA_READ | VMA_WRITE)
+    mov rdi, 0xE0000000
+    mov rsi, 8192
+    mov rdx, 3                      ; VMA_READ | VMA_WRITE
+    mov r8, r12                     ; mock_file
+    mov r9, 0                       ; offset 0
+    call vma_map_dax
+    test rax, rax
+    jz .dax_fail_map
+    mov r13, rax                    ; R13 = VMA pointer
+
+    ; 3. Access (write) magic value to 0xE0000000 (triggers page fault)
+    mov rdi, 0xE0000000
+    mov rbx, 0xAA55AA55BB66BB66
+    mov [rdi], rbx
+
+    ; 4. Verify that backing block 0 contains the magic value immediately
+    mov r14, [r12 + 8]              ; R14 = mock_file->blocks[0]
+    test r14, r14
+    jz .dax_fail_backing
+    mov rax, [r14]
+    mov rbx, 0xAA55AA55BB66BB66
+    cmp rax, rbx
+    jne .dax_fail_data
+
+    ; 5. Access (write) second magic value to 0xE0001000 (triggers page fault on page 1)
+    mov rdi, 0xE0001000
+    mov rbx, 0xCC77CC77DD88DD88
+    mov [rdi], rbx
+
+    ; Verify backing block 1 contains the second magic value immediately
+    mov r15, [r12 + 16]             ; R15 = mock_file->blocks[1]
+    test r15, r15
+    jz .dax_fail_backing
+    mov rax, [r15]
+    mov rbx, 0xCC77CC77DD88DD88
+    cmp rax, rbx
+    jne .dax_fail_data
+
+    ; 6. Unmap the range using mmap_munmap
+    mov rdi, 0xE0000000
+    mov rsi, 8192
+    call mmap_munmap
+    test rax, rax
+    jz .dax_fail_unmap
+
+    ; 7. Verify that backing blocks are not freed and still contain correct magic values
+    mov rax, [r12 + 8]
+    cmp rax, r14
+    jne .dax_fail_unmap_freed
+    mov rax, [r12 + 16]
+    cmp rax, r15
+    jne .dax_fail_unmap_freed
+
+    mov rax, [r14]
+    mov rbx, 0xAA55AA55BB66BB66
+    cmp rax, rbx
+    jne .dax_fail_unmap_data
+
+    mov rax, [r15]
+    mov rbx, 0xCC77CC77DD88DD88
+    cmp rax, rbx
+    jne .dax_fail_unmap_data
+
+    ; 8. Destroy mock file to release blocks
+    mov rdi, r12
+    call mock_file_destroy
+
+    ; DAX Block Mapping Tests PASSED!
+    mov rsi, msg_dax_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.dax_fail_create:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_create_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_backing:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_backing_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_unmap:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_unmap_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_unmap_freed:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_unmap_freed_str
+    call uart_print_str
+    jmp .panic
+
+.dax_fail_unmap_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_dax_fail_unmap_data_str
+    call uart_print_str
+    jmp .panic
 
 .stack_offset_fail_alloc:
     pop r15
@@ -7375,6 +7534,16 @@ msg_stack_offset_fail_alloc_str:      db "Failure: thread_stack_alloc returned N
 msg_stack_offset_fail_align_str:      db "Failure: Allocated stack address is not 16-byte aligned.", 0x0D, 0x0A, 0
 msg_stack_offset_fail_vma_str:        db "Failure: Could not find VMA for stack address.", 0x0D, 0x0A, 0
 msg_stack_offset_fail_bounds_str:     db "Failure: Stack random offset is out of bounds or misaligned.", 0x0D, 0x0A, 0
+
+msg_dax_test_start:                 db "Running VMM DAX Zero-Cache Block Mapping Tests...", 0x0D, 0x0A, 0
+msg_dax_test_passed:                db "VMM DAX Zero-Cache Block Mapping Tests PASSED!", 0x0D, 0x0A, 0
+msg_dax_fail_create_str:            db "Failure: Could not create mock file for DAX test.", 0x0D, 0x0A, 0
+msg_dax_fail_map_str:               db "Failure: Could not map DAX VMA.", 0x0D, 0x0A, 0
+msg_dax_fail_backing_str:           db "Failure: Backing mock file block is null on write.", 0x0D, 0x0A, 0
+msg_dax_fail_data_str:              db "Failure: Direct modification of backing block failed or value mismatch.", 0x0D, 0x0A, 0
+msg_dax_fail_unmap_str:             db "Failure: Munmap returned error on DAX VMA.", 0x0D, 0x0A, 0
+msg_dax_fail_unmap_freed_str:       db "Failure: Backing blocks were freed or cleared on munmap.", 0x0D, 0x0A, 0
+msg_dax_fail_unmap_data_str:        db "Failure: Synced values modified or corrupted after munmap.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
