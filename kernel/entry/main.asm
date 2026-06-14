@@ -104,6 +104,10 @@ extern virt_handle_dax_map
 extern vma_map_pmem
 extern virt_handle_pmem_map
 extern nvdimm_dev
+extern vma_map_pmem_window
+extern virt_handle_pmem_window_map
+extern pmem_window_init
+extern pmem_window_select_block
 extern mmap_msync
 extern mmap_munmap
 extern virt_create_user_pml4
@@ -5117,6 +5121,112 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .window_test_start
+
+.window_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_window_test_start
+    call uart_print_str
+
+    ; 1. Allocate heap memory for pmem_window_t descriptor
+    mov rdi, pmem_window_t_size
+    extern heap_alloc
+    call heap_alloc
+    test rax, rax
+    jz .window_fail_alloc_desc
+    mov r12, rax                    ; R12 = pointer to pmem_window_t
+
+    ; 2. Initialize the pmem hardware window
+    mov rdi, r12
+    call pmem_window_init
+    test qword [r12 + pmem_window_t.data_page], 0
+    jz .window_fail_init
+
+    ; 3. Map the static hardware data page using vma_map_pmem_window at 0xFA000000
+    mov rdi, 0xFA000000
+    mov rsi, 4096                   ; 1 page size
+    mov rdx, 3                      ; VMA_READ | VMA_WRITE
+    mov r8, r12                     ; pointer to pmem_window_t
+    call vma_map_pmem_window
+    test rax, rax
+    jz .window_fail_map
+    mov r13, rax                    ; R13 = VMA pointer
+
+    ; 4. Select block index 5
+    mov rdi, r12
+    mov rsi, 5
+    call pmem_window_select_block
+
+    ; 5. Access (read) the window at 0xFA000000 to verify default block 5 signature load (triggers page fault)
+    mov rdi, 0xFA000000
+    mov rax, [rdi]                  ; TATTVA_P
+    mov rbx, 0x505f415654544154
+    cmp rax, rbx
+    jne .window_fail_sig
+
+    ; Verify block index written at offset 32
+    mov rax, [rdi + 32]
+    cmp rax, 5
+    jne .window_fail_sig
+
+    ; 6. Modify the memory in the window: write magic value 0x1122334455667788 to 0xFA000000
+    mov rbx, 0x1122334455667788
+    mov [rdi], rbx
+
+    ; 7. Select block index 8 (this should flush block 5 changes to backing block 5, and load block 8)
+    mov rdi, r12
+    mov rsi, 8
+    call pmem_window_select_block
+
+    ; Verify static window data page now contains block 8 signature
+    mov rdi, 0xFA000000
+    mov rax, [rdi]
+    mov rbx, 0x505f415654544154
+    cmp rax, rbx
+    jne .window_fail_sig
+    mov rax, [rdi + 32]
+    cmp rax, 8
+    jne .window_fail_sig
+
+    ; 8. Verify that backing block 5 physical page contains the modified magic value
+    mov r14, [r12 + pmem_window_t.pmem_array + 5 * 8] ; R14 = backing block 5 address
+    test r14, r14
+    jz .window_fail_backing
+    mov rax, [r14]
+    mov rbx, 0x1122334455667788
+    cmp rax, rbx
+    jne .window_fail_backing_data
+
+    ; 9. Unmap the window range
+    mov rdi, 0xFA000000
+    mov rsi, 4096
+    call mmap_munmap
+    test rax, rax
+    jz .window_fail_unmap
+
+    ; 10. Clean up: free physical backing page 5, the static data page, and the heap descriptor
+    mov rdi, r14
+    call phys_free_page
+
+    mov rdi, [r12 + pmem_window_t.data_page]
+    call phys_free_page
+
+    mov rdi, r12
+    extern heap_free
+    call heap_free
+
+    ; NVDIMM Block Window Mapping Tests PASSED!
+    mov rsi, msg_window_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
 
 .pmem_fail_alloc:
@@ -7669,6 +7779,16 @@ msg_pmem_fail_map_str:              db "Failure: Could not map PMEM VMA.", 0x0D,
 msg_pmem_fail_data_str:             db "Failure: Direct modification of PMEM physical block failed or value mismatch.", 0x0D, 0x0A, 0
 msg_pmem_fail_unmap_str:            db "Failure: Munmap returned error on PMEM VMA.", 0x0D, 0x0A, 0
 msg_pmem_fail_unmap_data_str:       db "Failure: PMEM physical block data changed after unmap.", 0x0D, 0x0A, 0
+
+msg_window_test_start:              db "Running VMM PMEM Hardware Block Window Tests...", 0x0D, 0x0A, 0
+msg_window_test_passed:             db "VMM PMEM Hardware Block Window Tests PASSED!", 0x0D, 0x0A, 0
+msg_window_fail_alloc_desc_str:     db "Failure: Could not allocate memory for pmem_window_t descriptor.", 0x0D, 0x0A, 0
+msg_window_fail_init_str:           db "Failure: Could not initialize hardware block window data page.", 0x0D, 0x0A, 0
+msg_window_fail_map_str:            db "Failure: Could not map pmem window VMA.", 0x0D, 0x0A, 0
+msg_window_fail_sig_str:            db "Failure: Static window data page does not contain correct block signature.", 0x0D, 0x0A, 0
+msg_window_fail_backing_str:        db "Failure: Backing physical block was not allocated after flush.", 0x0D, 0x0A, 0
+msg_window_fail_backing_data_str:   db "Failure: Backing physical block does not contain flushed window data.", 0x0D, 0x0A, 0
+msg_window_fail_unmap_str:          db "Failure: Munmap returned error on pmem window VMA.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
