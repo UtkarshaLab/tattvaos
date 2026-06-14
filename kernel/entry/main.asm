@@ -101,6 +101,9 @@ extern mock_file_destroy
 extern vma_map_file
 extern vma_map_dax
 extern virt_handle_dax_map
+extern vma_map_pmem
+extern virt_handle_pmem_map
+extern nvdimm_dev
 extern mmap_msync
 extern mmap_munmap
 extern virt_create_user_pml4
@@ -5045,7 +5048,121 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .pmem_test_start
+
+.pmem_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_pmem_test_start
+    call uart_print_str
+
+    ; 1. Allocate a physical page to act as the NVDIMM physical storage block
+    call phys_alloc_page
+    test rax, rax
+    jz .pmem_fail_alloc
+    mov r12, rax                    ; R12 = physical page address of mock NVDIMM
+
+    ; 2. Setup the global nvdimm_dev descriptor
+    mov rdi, nvdimm_dev
+    mov [rdi], r12                  ; nvdimm_dev.phys_base = R12
+    mov qword [rdi + 8], 4096       ; nvdimm_dev.size = 4096 (1 page)
+
+    ; 3. Map the persistent memory range using vma_map_pmem at virtual address 0xF0000000 (flags VMA_READ | VMA_WRITE)
+    mov rdi, 0xF0000000
+    mov rsi, 4096
+    mov rdx, 3                      ; VMA_READ | VMA_WRITE
+    mov r8, nvdimm_dev              ; pointer to nvdimm_dev descriptor
+    mov r9, 0                       ; offset 0
+    call vma_map_pmem
+    test rax, rax
+    jz .pmem_fail_map
+    mov r13, rax                    ; R13 = VMA pointer
+
+    ; 4. Access (write) magic value to 0xF0000000 (triggers page fault)
+    mov rdi, 0xF0000000
+    mov rbx, 0x55AA55AA66BB66BB
+    mov [rdi], rbx
+
+    ; 5. Verify that the NVDIMM backing physical block contains the magic value immediately
+    mov rax, [r12]                  ; R12 is the identity-mapped physical page of NVDIMM
+    mov rbx, 0x55AA55AA66BB66BB
+    cmp rax, rbx
+    jne .pmem_fail_data
+
+    ; 6. Unmap the range using mmap_munmap
+    mov rdi, 0xF0000000
+    mov rsi, 4096
+    call mmap_munmap
+    test rax, rax
+    jz .pmem_fail_unmap
+
+    ; 7. Verify that the backing block is not cleared or released after unmap (still holds the magic value)
+    mov rax, [r12]
+    mov rbx, 0x55AA55AA66BB66BB
+    cmp rax, rbx
+    jne .pmem_fail_unmap_data
+
+    ; 8. Clean up the physical page (reclaim it manually as we bypassed munmap release)
+    mov rdi, r12
+    call phys_free_page
+
+    ; PMEM Byte-Addressability Tests PASSED!
+    mov rsi, msg_pmem_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.pmem_fail_alloc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_pmem_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.pmem_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_pmem_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.pmem_fail_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_pmem_fail_data_str
+    call uart_print_str
+    jmp .panic
+
+.pmem_fail_unmap:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_pmem_fail_unmap_str
+    call uart_print_str
+    jmp .panic
+
+.pmem_fail_unmap_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_pmem_fail_unmap_data_str
+    call uart_print_str
+    jmp .panic
 
 .dax_fail_create:
     pop r15
@@ -7544,6 +7661,14 @@ msg_dax_fail_data_str:              db "Failure: Direct modification of backing 
 msg_dax_fail_unmap_str:             db "Failure: Munmap returned error on DAX VMA.", 0x0D, 0x0A, 0
 msg_dax_fail_unmap_freed_str:       db "Failure: Backing blocks were freed or cleared on munmap.", 0x0D, 0x0A, 0
 msg_dax_fail_unmap_data_str:        db "Failure: Synced values modified or corrupted after munmap.", 0x0D, 0x0A, 0
+
+msg_pmem_test_start:                db "Running VMM PMEM Byte-Addressability Tests...", 0x0D, 0x0A, 0
+msg_pmem_test_passed:               db "VMM PMEM Byte-Addressability Tests PASSED!", 0x0D, 0x0A, 0
+msg_pmem_fail_alloc_str:            db "Failure: Could not allocate physical page for PMEM test.", 0x0D, 0x0A, 0
+msg_pmem_fail_map_str:              db "Failure: Could not map PMEM VMA.", 0x0D, 0x0A, 0
+msg_pmem_fail_data_str:             db "Failure: Direct modification of PMEM physical block failed or value mismatch.", 0x0D, 0x0A, 0
+msg_pmem_fail_unmap_str:            db "Failure: Munmap returned error on PMEM VMA.", 0x0D, 0x0A, 0
+msg_pmem_fail_unmap_data_str:       db "Failure: PMEM physical block data changed after unmap.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
