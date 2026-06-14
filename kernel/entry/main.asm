@@ -108,6 +108,7 @@ extern vma_map_pmem_window
 extern virt_handle_pmem_window_map
 extern pmem_window_init
 extern pmem_window_select_block
+extern pmem_memcpy_nt
 extern mmap_msync
 extern mmap_munmap
 extern virt_create_user_pml4
@@ -5227,7 +5228,264 @@ test_ctor:
     pop r14
     pop r13
     pop r12
+    jmp .bypass_test_start
+
+.bypass_test_start:
+    push r12
+    push r13
+    push r14
+    push r15
+
+    mov rsi, msg_bypass_test_start
+    call uart_print_str
+
+    ; 1. Allocate source physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .bypass_fail_alloc
+    mov r12, rax                    ; R12 = source physical page
+
+    ; 2. Allocate destination physical page
+    call phys_alloc_page
+    test rax, rax
+    jz .bypass_fail_alloc_dest
+    mov r13, rax                    ; R13 = dest physical page
+
+    ; 3. Map pages into virtual address space
+    mov rdi, 0x80000000
+    mov rsi, r12
+    mov rdx, 3                      ; PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .bypass_fail_map
+
+    mov rdi, 0x80001000
+    mov rsi, r13
+    mov rdx, 3                      ; PAGE_PRESENT | PAGE_WRITABLE
+    call virt_map
+    test rax, rax
+    jz .bypass_fail_map
+
+    ; 4. Fill source page with pattern "TATTVA_BYPASS_CACHE_TEST_PATTERN_"
+    mov rdi, 0x80000000
+    mov rcx, 128                    ; 128 * 32 bytes = 4096 bytes
+.fill_loop:
+    mov rax, 0x425f415654544154     ; "TATTVA_B"
+    mov [rdi], rax
+    mov rax, 0x41435f5353415059     ; "YPASS_CA"
+    mov [rdi + 8], rax
+    mov rax, 0x545345545f454843     ; "CHE_TEST"
+    mov [rdi + 16], rax
+    mov rax, 0x4e5245545441505f     ; "_PATTERN"
+    mov [rdi + 24], rax
+    add rdi, 32
+    dec rcx
+    jnz .fill_loop
+
+    ; 5. Copy using cache-bypassing copy (aligned to 4096)
+    mov rdi, 0x80001000
+    mov rsi, 0x80000000
+    mov rdx, 4096
+    call pmem_memcpy_nt
+
+    ; 6. Verify destination contains identical pattern immediately
+    mov rdi, 0x80001000
+    mov rcx, 128
+.verify_loop:
+    mov rax, [rdi]
+    mov rbx, 0x425f415654544154
+    cmp rax, rbx
+    jne .bypass_fail_data
+    mov rax, [rdi + 8]
+    mov rbx, 0x41435f5353415059
+    cmp rax, rbx
+    jne .bypass_fail_data
+    mov rax, [rdi + 16]
+    mov rbx, 0x545345545f454843
+    cmp rax, rbx
+    jne .bypass_fail_data
+    mov rax, [rdi + 24]
+    mov rbx, 0x4e5245545441505f
+    cmp rax, rbx
+    jne .bypass_fail_data
+    add rdi, 32
+    dec rcx
+    jnz .verify_loop
+
+    ; --- Unaligned pointer test subcase ---
+    ; Re-initialize source page with sentinel bytes (0..255)
+    mov rdi, 0x80000000
+    xor rcx, rcx
+.fill_unaligned_src:
+    mov [rdi + rcx], cl
+    inc rcx
+    cmp rcx, 512
+    jb .fill_unaligned_src
+
+    ; Re-initialize destination page with 0xFF
+    mov rdi, 0x80001000
+    mov rcx, 512
+    mov al, 0xFF
+    rep stosb
+
+    ; Copy 200 bytes from Src + 3 to Dest + 7
+    mov rdi, 0x80001000 + 7
+    mov rsi, 0x80000000 + 3
+    mov rdx, 200
+    call pmem_memcpy_nt
+
+    ; Verify destination bytes [7 .. 206] match source bytes [3 .. 202]
+    mov rdi, 0x80001000
+    xor rcx, rcx
+.verify_unaligned:
+    cmp rcx, 7
+    jb .check_ff
+    cmp rcx, 207
+    jae .check_ff
+
+    ; In-range check: Dest[rcx] should be Src[rcx - 7 + 3] = rcx - 4
+    mov al, [rdi + rcx]
+    mov r8, rcx
+    sub r8, 4
+    cmp al, r8b
+    jne .bypass_fail_data
+    jmp .next_verify
+
+.check_ff:
+    ; Out-of-range check: Dest[rcx] should be 0xFF
+    mov al, [rdi + rcx]
+    cmp al, 0xFF
+    jne .bypass_fail_data
+
+.next_verify:
+    inc rcx
+    cmp rcx, 512
+    jb .verify_unaligned
+
+    ; 7. Clean up mappings
+    mov rdi, 0x80000000
+    mov rsi, 4096
+    call virt_unmap
+
+    mov rdi, 0x80001000
+    mov rsi, 4096
+    call virt_unmap
+
+    ; 8. Free backing pages
+    mov rdi, r12
+    call phys_free_page
+
+    mov rdi, r13
+    call phys_free_page
+
+    ; VMM PMEM Direct Write Cache Bypass Tests PASSED!
+    mov rsi, msg_bypass_test_passed
+    call uart_print_str
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     jmp .xo_test_start
+
+.window_fail_alloc_desc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_alloc_desc_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_init:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_init_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_sig:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_sig_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_backing:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_backing_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_backing_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_backing_data_str
+    call uart_print_str
+    jmp .panic
+
+.window_fail_unmap:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_window_fail_unmap_str
+    call uart_print_str
+    jmp .panic
+
+.bypass_fail_alloc:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_bypass_fail_alloc_str
+    call uart_print_str
+    jmp .panic
+
+.bypass_fail_alloc_dest:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_bypass_fail_alloc_dest_str
+    call uart_print_str
+    jmp .panic
+
+.bypass_fail_map:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_bypass_fail_map_str
+    call uart_print_str
+    jmp .panic
+
+.bypass_fail_data:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    mov rsi, msg_bypass_fail_data_str
+    call uart_print_str
+    jmp .panic
 
 .pmem_fail_alloc:
     pop r15
@@ -7789,6 +8047,13 @@ msg_window_fail_sig_str:            db "Failure: Static window data page does no
 msg_window_fail_backing_str:        db "Failure: Backing physical block was not allocated after flush.", 0x0D, 0x0A, 0
 msg_window_fail_backing_data_str:   db "Failure: Backing physical block does not contain flushed window data.", 0x0D, 0x0A, 0
 msg_window_fail_unmap_str:          db "Failure: Munmap returned error on pmem window VMA.", 0x0D, 0x0A, 0
+
+msg_bypass_test_start:             db "Running VMM PMEM Direct Write Cache Bypass Tests...", 0x0D, 0x0A, 0
+msg_bypass_test_passed:            db "VMM PMEM Direct Write Cache Bypass Tests PASSED!", 0x0D, 0x0A, 0
+msg_bypass_fail_alloc_str:         db "Failure: Could not allocate source physical page for bypass test.", 0x0D, 0x0A, 0
+msg_bypass_fail_alloc_dest_str:    db "Failure: Could not allocate destination physical page for bypass test.", 0x0D, 0x0A, 0
+msg_bypass_fail_map_str:           db "Failure: Could not map pages for bypass test.", 0x0D, 0x0A, 0
+msg_bypass_fail_data_str:          db "Failure: Direct write bypass data verification mismatch.", 0x0D, 0x0A, 0
 
 msg_xo_test_start:            db "Running Execute-Only (XO) Pages Security Tests...", 0x0D, 0x0A, 0
 msg_xo_pku_supported:         db "  [XO Test] Hardware PKU support detected. Enabling CR4.PKE...", 0x0D, 0x0A, 0
