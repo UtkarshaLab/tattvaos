@@ -27,6 +27,7 @@ VMA_STACK       equ (1 << 6)
 VMA_ONDEMAND    equ (1 << 7)
 VMA_FILE        equ (1 << 8)
 VMA_HMM         equ (1 << 9)
+VMA_DAX         equ (1 << 10)
 
 
 ; Page Table Flags (from pgtable.asm)
@@ -63,6 +64,7 @@ extern zswap_decompress_and_free
 extern kernel_stack_guard
 extern kernel_panic
 extern virt_handle_file_map
+extern virt_handle_dax_map
 
 
 ; -----------------------------------------------------------------------------
@@ -321,6 +323,10 @@ virt_page_fault_handler:
     test rbx, VMA_FILE
     jnz .file_map_path
 
+    ; Check if DAX VMA
+    test rbx, VMA_DAX
+    jnz .dax_map_path
+
     ; Check if on-demand paging VMA
     test rbx, VMA_ONDEMAND
     jnz .on_demand_path
@@ -353,6 +359,17 @@ virt_page_fault_handler:
     mov rdi, r12                    ; virtual address
     mov rsi, rax                    ; VMA pointer
     call virt_handle_file_map
+    test rax, rax
+    jz .do_diagnostics              ; failed -> panic
+
+    mov rax, 1
+    jmp .exit
+
+.dax_map_path:
+    ; Call handler for DAX Zero-Cache direct mapping
+    mov rdi, r12                    ; virtual address
+    mov rsi, rax                    ; VMA pointer
+    call virt_handle_dax_map
     test rax, rax
     jz .do_diagnostics              ; failed -> panic
 
